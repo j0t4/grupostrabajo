@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Workgroup {
+  id             Int       @id @default(autoincrement())
+  name           String
+  description    String?
+  status         WorkgroupStatus @default(ACTIVE)
+  deactivationDate DateTime?
+  parentId       Int?
+  parent         Workgroup?    @relation("WorkgroupHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children       Workgroup[]   @relation("WorkgroupHierarchy")
+  memberships    Membership[]
+  meetings       Meeting[]
+  logbookEntries LogbookEntry[]
+
+  @@index([parentId])
+}
+
+enum WorkgroupStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Member {
+  id                  Int           @id @default(autoincrement())
+  name                String
+  surname             String
+  email               String        @unique
+  dni                 String        @unique
+  position            String?
+  organization        String?
+  phone1              String?
+  phone1Description   String?
+  phone2              String?
+  phone2Description   String?
+  phone3              String?
+  phone3Description   String?
+  status              MemberStatus  @default(ACTIVE)
+  deactivationDate    DateTime?
+  deactivationDescription String?
+  memberships         Membership[]
+  attendances         Attendance[]
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Membership {
+  memberId              Int
+  workgroupId             Int
+  role                  MembershipRole
+  startDate             DateTime      @default(now())
+  endDate               DateTime?
+  endDateDescription    String?
+  member                Member        @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workgroup               Workgroup     @relation(fields: [workgroupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([memberId, workgroupId, startDate])
+  @@index([memberId])
+  @@index([workgroupId])
+}
+
+enum MembershipRole {
+  PRESIDENT
+  SECRETARY
+  ASSISTANT
+  GUEST
+}
+
+model Meeting {
+  id          Int            @id @default(autoincrement())
+  workgroupId Int
+  title       String
+  description String?
+  date        DateTime
+  type        MeetingType    @default(PRESENTIAL)
+  observations String?
+  agenda      String?
+  minutes     String?
+  workgroup   Workgroup      @relation(fields: [workgroupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  attendances Attendance[]
+
+  @@index([workgroupId])
+}
+
+enum MeetingType {
+  PRESENTIAL
+  ONLINE
+}
+
+model Attendance {
+  memberId  Int
+  meetingId Int
+  member    Member  @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([memberId, meetingId])
+  @@index([memberId])
+  @@index([meetingId])
+}
+
+model LogbookEntry {
+  id          Int                @id @default(autoincrement())
+  workgroupId Int
+  date        DateTime           @default(now())
+  description String
+  type        LogbookEntryType
+  status      LogbookEntryStatus @default(ACTIVE)
+  workgroup   Workgroup          @relation(fields: [workgroupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([workgroupId])
+}
+
+enum LogbookEntryType {
+  ATTENDEES
+  AGENDA
+  DOCUMENTATION
+  MINUTES
+}
+
+enum LogbookEntryStatus {
+  ACTIVE
+  RESOLVED
+}
