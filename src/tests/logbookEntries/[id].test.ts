@@ -1,4 +1,4 @@
-import { GET, PUT, DELETE } from '../src/app/api/logbookEntries/[id]/route';
+import { GET, PUT, DELETE } from '../../app/api/logbookEntries/[id]/route';
 import { PrismaClient } from '@prisma/client';
 import { NextResponse } from 'next/server';
 
@@ -11,19 +11,20 @@ describe('Logbook Entries API', () => {
     // Create a logbook entry for testing purposes
     const logbookEntry = await prisma.logbookEntry.create({
       data: {
-        memberId: 1,
         date: new Date(),
-        hours: 2,
         description: 'Initial logbook entry for testing',
+        type: 'ATTENDEES',
+        workgroupId: 1,
+        status: 'ACTIVE',
       },
     });
     logbookEntryId = logbookEntry.id;
   });
-
+  
   afterAll(async () => {
     // Clean up the created logbook entry
     await prisma.logbookEntry.delete({
-      where: { id: logbookEntryId },
+      where: { id: logbookEntryId }, 
     });
     await prisma.$disconnect();
   });
@@ -63,10 +64,12 @@ describe('Logbook Entries API', () => {
     // Create a new logbook entry to be deleted
     const newLogbookEntry = await prisma.logbookEntry.create({
       data: {
-        memberId: 1,
         date: new Date(),
-        hours: 1,
         description: 'Logbook entry to be deleted',
+        type: 'ATTENDEES',
+        workgroupId: 1,
+        status: 'ACTIVE',
+
       },
     });
 
