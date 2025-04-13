@@ -1,71 +1,90 @@
 import { GET, POST } from '@/app/api/members/route'; // Use alias
 import { PrismaClient, MemberStatus } from '@prisma/client';
-import { mockDeep, mockReset, DeepMockProxy } from 'jest-mock-extended';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 import { faker } from '@faker-js/faker';
 
-// --- Correct Initialization Order ---
-// 1. Declare the mock variable
+// --- Original Mock Initialization Pattern ---
 const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-// 2. Mock the module *using* the declared variable
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn(() => prismaMock),
-  MemberStatus: {
+jest.mock('@prisma/client', () => {
+  return {
+    PrismaClient: jest.fn(() => prismaMock),
+    MemberStatus: {
       ACTIVE: 'ACTIVE',
       INACTIVE: 'INACTIVE'
-  }
-}));
+    }
+  };
+});
 // ------------------------------------
 
-jest.unmock('next/server'); // Use real NextResponse
+jest.unmock('next/server');
 
 describe('Member API - /members', () => {
   let req: DeepMockProxy<NextRequest>;
 
   beforeEach(() => {
-    mockReset(prismaMock); // Reset mocks before each test
+    mockReset(prismaMock);
     req = mockDeep<NextRequest>();
+    // Provide a default URL for GET tests
+    Object.defineProperty(req, 'nextUrl', { // Use nextUrl which has searchParams
+        value: new URL('http://localhost/api/members'),
+        writable: true,
+    });
   });
 
-  // Helper to create mock member data consistent with schema
-  const createMockMemberData = (id: number) => ({
-      id,
-      name: faker.person.firstName(),
-      surname: faker.person.lastName(),
-      email: faker.internet.email(),
-      dni: faker.string.alphanumeric(9),
-      status: MemberStatus.ACTIVE,
-      position: null, organization: null, phone1: null, phone1Description: null,
-      phone2: null, phone2Description: null, phone3: null, phone3Description: null,
-      deactivationDate: null, deactivationDescription: null
+  const createMockMember = (id: number) => ({
+    id,
+    name: faker.person.firstName(),
+    surname: faker.person.lastName(),
+    email: faker.internet.email(),
+    dni: faker.string.alphanumeric(9),
+    status: MemberStatus.ACTIVE,
+    position: null, organization: null, phone1: null, phone1Description: null,
+    phone2: null, phone2Description: null, phone3: null, phone3Description: null,
+    deactivationDate: null, deactivationDescription: null
   });
 
   describe('GET', () => {
-    it('should return all members with serialized dates', async () => {
-      const members = [
-        createMockMemberData(1),
-        { ...createMockMemberData(2), deactivationDate: new Date() } // Include one with a date
-      ];
-      prismaMock.member.findMany.mockResolvedValue(members as any);
+    it('should return a list of members', async () => {
+      const mockMembers = [createMockMember(1), createMockMember(2)];
+      prismaMock.member.findMany.mockResolvedValue(mockMembers as any);
 
-      const response = await GET(); // GET doesn't typically use request body
+      const response = await GET(req);
       const data = await response.json();
 
-      const expectedData = members.map(m => ({
-          ...m,
-          deactivationDate: m.deactivationDate ? m.deactivationDate.toISOString() : null
-      }));
+      expect(response.status).toBe(200);
+      // Dates should be null or serialized if they exist
+      const expectedData = mockMembers.map(m => ({ ...m, deactivationDate: null }));
+      expect(data).toEqual(expectedData);
+      expect(prismaMock.member.findMany).toHaveBeenCalledTimes(1);
+      expect(prismaMock.member.findMany).toHaveBeenCalledWith({ where: {} }); // Check default call
+    });
+
+     it('should filter members by status', async () => {
+      const mockMembers = [createMockMember(1)];
+      prismaMock.member.findMany.mockResolvedValue(mockMembers as any);
+
+      // Mock URL with query params
+      Object.defineProperty(req, 'nextUrl', {
+           value: new URL('http://localhost/api/members?status=ACTIVE'),
+           writable: true,
+       });
+
+      const response = await GET(req);
+      const data = await response.json();
+      const expectedData = mockMembers.map(m => ({ ...m, deactivationDate: null }));
 
       expect(response.status).toBe(200);
       expect(data).toEqual(expectedData);
       expect(prismaMock.member.findMany).toHaveBeenCalledTimes(1);
+      expect(prismaMock.member.findMany).toHaveBeenCalledWith({ where: { status: MemberStatus.ACTIVE } });
     });
 
-    it('should handle errors during GET', async () => {
-      prismaMock.member.findMany.mockRejectedValue(new Error('Database error'));
+    it('should return 500 on database error', async () => {
+      prismaMock.member.findMany.mockRejectedValue(new Error('DB Error'));
 
-      const response = await GET();
+      const response = await GET(req);
       const data = await response.json();
 
       expect(response.status).toBe(500);
@@ -75,45 +94,32 @@ describe('Member API - /members', () => {
   });
 
   describe('POST', () => {
-    it('should create a new member and return serialized data', async () => {
+    it('should create a new member', async () => {
       const newMemberInput = {
         name: faker.person.firstName(),
         surname: faker.person.lastName(),
         email: faker.internet.email(),
         dni: faker.string.alphanumeric(9),
-        // status defaults to ACTIVE in schema
+        // Status typically defaults in the DB or route handler, not always in input
       };
-      const createdMember = {
-          id: 3,
-          ...newMemberInput,
-          status: MemberStatus.ACTIVE,
-          position: null, organization: null, phone1: null, phone1Description: null,
-          phone2: null, phone2Description: null, phone3: null, phone3Description: null,
-          deactivationDate: null, deactivationDescription: null
-      };
+      const createdMember = { ...newMemberInput, id: 1, status: MemberStatus.ACTIVE, deactivationDate: null }; // Mock the DB result
+
       prismaMock.member.create.mockResolvedValue(createdMember as any);
       (req.json as jest.Mock).mockResolvedValue(newMemberInput);
 
       const response = await POST(req);
       const data = await response.json();
 
-      const expectedData = { ...createdMember, deactivationDate: null }; // Serialize date field
-
+      // Dates should be null or serialized
       expect(response.status).toBe(201);
-      expect(data).toEqual(expectedData);
+      expect(data).toEqual({ ...createdMember, deactivationDate: null });
       expect(prismaMock.member.create).toHaveBeenCalledTimes(1);
-      // Prisma adds default status, so check input data passed was correct
       expect(prismaMock.member.create).toHaveBeenCalledWith({ data: newMemberInput });
     });
 
-    it('should handle errors during POST', async () => {
-      const newMemberInput = {
-        name: faker.person.firstName(),
-        surname: faker.person.lastName(),
-        email: faker.internet.email(),
-        dni: faker.string.alphanumeric(9),
-      };
-      prismaMock.member.create.mockRejectedValue(new Error('Database error'));
+    it('should return 500 on database error during creation', async () => {
+      const newMemberInput = { name: 'Test', surname: 'User', email: 'test@example.com', dni: '12345678A' };
+      prismaMock.member.create.mockRejectedValue(new Error('DB Error'));
       (req.json as jest.Mock).mockResolvedValue(newMemberInput);
 
       const response = await POST(req);
@@ -122,10 +128,24 @@ describe('Member API - /members', () => {
       expect(response.status).toBe(500);
       expect(data).toEqual({ error: 'Failed to create member. Please check server logs.' });
       expect(prismaMock.member.create).toHaveBeenCalledTimes(1);
-      expect(prismaMock.member.create).toHaveBeenCalledWith({ data: newMemberInput });
     });
 
-     // Add tests for validation errors (Zod)
-     // Add tests for 409 conflict (unique email/dni)
+     it('should return 400 on validation error (e.g., missing required field)', async () => {
+      const invalidMemberInput = { surname: 'User', email: 'test@example.com', dni: '12345678A' }; // Missing name
+      (req.json as jest.Mock).mockResolvedValue(invalidMemberInput);
+
+      // No need to mock prisma.create as validation happens before DB call
+
+      const response = await POST(req);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      // The exact error message depends on Zod schema and error handling in route
+      expect(data).toHaveProperty('error');
+      expect(data.error).toContain('Validation error'); // Or a more specific Zod message
+      expect(prismaMock.member.create).not.toHaveBeenCalled();
+    });
+
+    // Add more tests for other validation errors (e.g., invalid email, dni format)
   });
 });

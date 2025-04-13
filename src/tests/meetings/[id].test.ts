@@ -1,20 +1,20 @@
 import { GET, PUT, DELETE } from '@/app/api/meetings/[id]/route';
 import { PrismaClient, MeetingType } from '@prisma/client';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 
-// --- Correct Initialization Order ---
-// 1. Declare the mock variable
+// --- Original Mock Initialization Pattern ---
 const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-// 2. Mock the module *using* the declared variable
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn(() => prismaMock),
-  MeetingType: {
+jest.mock('@prisma/client', () => {
+  return {
+    PrismaClient: jest.fn(() => prismaMock),
+    MeetingType: {
       PRESENTIAL: 'PRESENTIAL',
       ONLINE: 'ONLINE'
-  }
-}));
+    }
+  };
+});
 // ------------------------------------
 
 jest.unmock('next/server'); // Use real NextResponse
@@ -89,7 +89,7 @@ describe('Meeting API Endpoints - /meetings/[id]', () => {
       const updateData = { title: 'Updated Meeting Title', type: MeetingType.ONLINE };
       const updatedMeeting = { ...existingMeeting, ...updateData };
 
-      prismaMock.meeting.findUnique.mockResolvedValue(existingMeeting as any);
+      // prismaMock.meeting.findUnique.mockResolvedValue(existingMeeting as any); // No need if not checked in PUT handler
       prismaMock.meeting.update.mockResolvedValue(updatedMeeting as any);
       (req.json as jest.Mock).mockResolvedValue(updateData);
 
@@ -105,7 +105,7 @@ describe('Meeting API Endpoints - /meetings/[id]', () => {
     it('should return 404 if meeting to update not found', async () => {
       const meetingId = 99;
       const updateData = { title: 'Updated Meeting Title' };
-      prismaMock.meeting.update.mockRejectedValue({ code: 'P2025' });
+      prismaMock.meeting.update.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found
       (req.json as jest.Mock).mockResolvedValue(updateData);
 
       const response = await PUT(req, { params: { id: String(meetingId) } });
@@ -147,7 +147,7 @@ describe('Meeting API Endpoints - /meetings/[id]', () => {
 
     it('should return 404 if meeting to delete not found', async () => {
       const meetingId = 99;
-      prismaMock.meeting.delete.mockRejectedValue({ code: 'P2025' });
+      prismaMock.meeting.delete.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found
 
       const response = await DELETE(req, { params: { id: String(meetingId) } });
       const data = await response.json();

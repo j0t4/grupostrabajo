@@ -1,33 +1,31 @@
 import { GET, PUT, DELETE } from '@/app/api/members/[id]/route'; // Use alias
 import { PrismaClient, MemberStatus } from '@prisma/client';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 import { faker } from '@faker-js/faker';
 
-// --- Correct Initialization Order ---
-// 1. Declare the mock variable
+// --- Original Mock Initialization Pattern ---
 const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-// 2. Mock the module *using* the declared variable
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn(() => prismaMock),
-  MemberStatus: {
+jest.mock('@prisma/client', () => {
+  return {
+    PrismaClient: jest.fn(() => prismaMock),
+    MemberStatus: {
       ACTIVE: 'ACTIVE',
       INACTIVE: 'INACTIVE'
-  }
-}));
+    }
+  };
+});
 // ------------------------------------
 
-// Keep NextResponse *unmocked* unless absolutely necessary
-// This makes tests closer to reality and avoids complex mock maintenance
 jest.unmock('next/server');
 
 describe('Member API Endpoints - /members/[id]', () => {
   let req: DeepMockProxy<NextRequest>;
 
   beforeEach(() => {
-    mockReset(prismaMock); // Reset mocks before each test
-    req = mockDeep<NextRequest>(); // Use mockDeep for NextRequest as well
+    mockReset(prismaMock); // Reset the external mock variable
+    req = mockDeep<NextRequest>();
   });
 
   // Helper function to create a mock member
@@ -92,7 +90,8 @@ describe('Member API Endpoints - /members/[id]', () => {
       const updateData = { name: 'Updated Name', email: faker.internet.email() };
       const updatedMember = { ...existingMember, ...updateData };
 
-      prismaMock.member.findUnique.mockResolvedValue(existingMember as any);
+      // Mock findUnique needed for some update logic if it checks existence first
+      // prismaMock.member.findUnique.mockResolvedValue(existingMember as any); // Uncomment if route checks first
       prismaMock.member.update.mockResolvedValue(updatedMember as any);
       (req.json as jest.Mock).mockResolvedValue(updateData); // Mock the request body
 
@@ -108,7 +107,7 @@ describe('Member API Endpoints - /members/[id]', () => {
      it('should return 404 if member to update is not found', async () => {
       const memberId = 99;
       const updateData = { name: 'Updated Name' };
-      prismaMock.member.update.mockRejectedValue({ code: 'P2025' });
+      prismaMock.member.update.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found error
       (req.json as jest.Mock).mockResolvedValue(updateData);
 
       const response = await PUT(req, { params: { id: String(memberId) } });
@@ -152,7 +151,7 @@ describe('Member API Endpoints - /members/[id]', () => {
 
      it('should return 404 if member to delete is not found', async () => {
       const memberId = 99;
-      prismaMock.member.delete.mockRejectedValue({ code: 'P2025' });
+      prismaMock.member.delete.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found error
 
       const response = await DELETE(req, { params: { id: String(memberId) } });
       const data = await response.json();

@@ -1,234 +1,203 @@
-import { GET, PUT, DELETE } from '../../app/api/memberships/[memberId]_[workgroupId]_[startDate]/route';
-import { PrismaClient } from '@prisma/client';
-import { NextResponse } from 'next/server';
+import { GET, PUT, DELETE } from '@/app/api/memberships/[memberId]_[workgroupId]_[startDate]/route'; // Use alias
+import { PrismaClient, MembershipRole } from '@prisma/client';
+import { NextRequest } from 'next/server';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 
-const prisma = new PrismaClient();
+// --- Alternative Mock Initialization ---
+let prismaMock: DeepMockProxy<PrismaClient>;
 
-describe('Memberships API Endpoints', () => {
-  const memberId = '1';
-  const workgroupId = '2';
-  const startDate = '2023-01-01';
-  let createdMemberId: number;
-  let createdWorkgroupId: number;
-
-  // Use a consistent date format for startDate
-  const formattedStartDate = new Date(startDate).toISOString();
-  beforeEach(async () => {
-    // Ensure a clean database state and create necessary records before each test
-    await prisma.membership.deleteMany();
-    await prisma.member.deleteMany();
-    await prisma.workgroup.deleteMany();
-
-    // Create a member and a workgroup to satisfy foreign key constraints
-    await prisma.member.create({
-      data: {
-        id: Number(memberId),
-        name: 'Test Member',
-        email: 'test@example.com',
-        surname: 'Test Surname',
-        dni: '12345678A',
-      },
-    });
-
-    await prisma.workgroup.create({
-      data: {
-        id: Number(workgroupId),
-        name: 'Test Workgroup',
-      },
-    });
-    const createdMember = await prisma.member.findUnique({
-      where: { id: Number(memberId) },
-    });
-    const createdWorkgroup = await prisma.workgroup.findUnique({
-      where: { id: Number(workgroupId) },
-    });
-    if (createdMember && createdWorkgroup) {
-      createdMemberId = createdMember.id;
-      createdWorkgroupId = createdWorkgroup.id;
-    } else {
-      throw new Error('Failed to create member or workgroup');
+jest.mock('@prisma/client', () => {
+  const mock = mockDeep<PrismaClient>();
+  prismaMock = mock;
+  return {
+    PrismaClient: jest.fn(() => mock),
+    MembershipRole: { // Include enums used in tests/routes
+      PRESIDENT: 'PRESIDENT',
+      SECRETARY: 'SECRETARY',
+      ASSISTANT: 'ASSISTANT',
+      GUEST: 'GUEST'
     }
-  },
-    });
-createdMemberId = createdMember.id;
-createdWorkgroupId = createdWorkgroup.id;
-
-// Create a membership with the composite key
-await prisma.membership.create({
-  data: {
-    memberId: Number(memberId),
-    workgroupId: Number(workgroupId),
-    startDate: formattedStartDate,
-    role: 'GUEST', // Or any valid role
-  },
+  };
 });
+// ------------------------------------
 
+jest.unmock('next/server'); // Use real NextResponse
+
+describe('Memberships API Endpoints - /memberships/[compositeId]', () => {
+  let req: DeepMockProxy<NextRequest>;
+  const memberId = 1;
+  const workgroupId = 2;
+  const startDate = new Date('2023-01-01T00:00:00.000Z'); // Use Date object
+  const startDateISO = startDate.toISOString();
+
+  // Composite key for Prisma queries
+  const compositeId = {
+    memberId: memberId,
+    workgroupId: workgroupId,
+    startDate: startDate, // Prisma expects Date object here
+  };
+
+  const mockMembership = {
+    memberId: memberId,
+    workgroupId: workgroupId,
+    startDate: startDate,
+    role: MembershipRole.GUEST,
+    endDate: null,
+    endDateDescription: null,
+    // Mock related data if included in response/logic
+    member: { id: memberId, name: 'Test Member', /* other fields */ },
+    workgroup: { id: workgroupId, name: 'Test WG', /* other fields */ },
+  };
+
+  // Expected JSON response (dates as ISO strings)
+  const mockMembershipJSON = {
+      memberId: memberId,
+      workgroupId: workgroupId,
+      startDate: startDateISO,
+      role: MembershipRole.GUEST,
+      endDate: null,
+      endDateDescription: null,
+      // Related data might also be included depending on route's include
+      member: { id: memberId, name: 'Test Member', /* other fields */ },
+      workgroup: { id: workgroupId, name: 'Test WG', /* other fields */ },
+  };
+
+  beforeEach(() => {
+    mockReset(prismaMock);
+    req = mockDeep<NextRequest>();
   });
 
-afterAll(async () => {
-  await prisma.$disconnect();
-});
+  describe('GET', () => {
+    it('should return a membership if found', async () => {
+      prismaMock.membership.findUnique.mockResolvedValue(mockMembership as any);
 
-describe('GET', () => {
-  it('should return a membership if found', async () => {
-    // Create a membership to be retrieved
-    await prisma.membership.create({
-      data: {
-        memberId: Number(memberId),
-        workgroupId: Number(workgroupId),
-        startDate: new Date(startDate),
-        role: 'GUEST', // Use a valid role from the enum
-      },
+      const response = await GET(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual(mockMembershipJSON); // Compare with serialized date
+      expect(prismaMock.membership.findUnique).toHaveBeenCalledTimes(1);
+      expect(prismaMock.membership.findUnique).toHaveBeenCalledWith({
+        where: { memberId_workgroupId_startDate: compositeId },
+        include: { member: true, workgroup: true }, // Match include from route
+      });
     });
 
-    const request = new Request(
-      `http://localhost/api/memberships/${createdMemberId}_${createdWorkgroupId}_${formattedStartDate}`,
-    );
+    it('should return a 404 error if membership is not found', async () => {
+      prismaMock.membership.findUnique.mockResolvedValue(null);
 
-    const response = await GET(request, {
-      params: { memberId: createdMemberId.toString(), workgroupId: createdWorkgroupId.toString(), startDate: formattedStartDate },
+      const response = await GET(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+      const data = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Membership not found' }); // Match route error message
+      expect(prismaMock.membership.findUnique).toHaveBeenCalledTimes(1);
+      expect(prismaMock.membership.findUnique).toHaveBeenCalledWith({
+        where: { memberId_workgroupId_startDate: compositeId },
+        include: { member: true, workgroup: true }, // Match include from route
+      });
     });
 
-    const membership = await response.json();
+    it('should return a 500 error if there is a database error', async () => {
+      prismaMock.membership.findUnique.mockRejectedValue(new Error('Simulated database error'));
 
-    expect(response.status).toBe(200);
-    expect(membership).toHaveProperty('memberId', Number(memberId));
-    expect(membership).toHaveProperty('workgroupId', Number(workgroupId));
-    expect(new Date(membership.startDate)).toEqual(new Date(startDate));
-  });
-  it('should return a 404 error if membership is not found', async () => {
-    const params = {
-      memberId: '999', // Non-existent member ID
-      workgroupId: '999', // Non-existent workgroup ID
-      startDate: formattedStartDate,
-    };
+      const response = await GET(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+      const data = await response.json();
 
-    const request = new Request('http://localhost');
-    const response = await GET(request, { params });
-    const data = await response.json();
-
-    expect(response.status).toBe(404);
-    expect(error).toHaveProperty('error', 'Membership not found');
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to fetch membership. Please check server logs.' }); // Match route error message
+      expect(prismaMock.membership.findUnique).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('should return a 500 error if there is a server error', async () => {
-    // Mock PrismaClient to simulate an error
-    jest.spyOn(prisma.membership, 'findUnique').mockImplementation(() => {
-      throw new Error('Simulated database error');
-    });
-    const params = {
-      memberId: createdMemberId.toString(),
-      workgroupId: createdWorkgroupId.toString(),
-      startDate: formattedStartDate,
-    };
-    const request = new Request('http://localhost'); // Provide a valid URL
-    const response = await GET(request, { params });
-    const error = await response.json();
+  describe('PUT', () => {
+    it('should update a membership if found', async () => {
+      const updateData = { endDate: new Date('2023-12-31T00:00:00.000Z'), role: MembershipRole.ASSISTANT };
+      const updatedMembership = { ...mockMembership, ...updateData };
+      const updatedMembershipJSON = { ...mockMembershipJSON, ...updateData, endDate: updateData.endDate.toISOString() };
 
-    expect(response.status).toBe(500);
-    expect(error).toHaveProperty('error', 'Failed to fetch membership');
+      prismaMock.membership.update.mockResolvedValue(updatedMembership as any);
+      (req.json as jest.Mock).mockResolvedValue(updateData); // Mock request body
 
-    // Restore the original implementation
-    jest.restoreAllMocks();
-  });
-});
+      const response = await PUT(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+      const data = await response.json();
 
-describe('PUT', () => {
-  it('should update a membership if found', async () => {
-
-    const updatedEndDate = new Date('2023-12-31').toISOString();
-    const request = new Request(
-      `http://localhost/api/memberships/${createdMemberId}_${createdWorkgroupId}_${formattedStartDate}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ endDate: updatedEndDate }),
-      },
-    );
-
-    const response = await PUT(request, {
-      params: { memberId: createdMemberId.toString(), workgroupId: createdWorkgroupId.toString(), startDate: formattedStartDate },
+      expect(response.status).toBe(200);
+      expect(data).toEqual(updatedMembershipJSON);
+      expect(prismaMock.membership.update).toHaveBeenCalledTimes(1);
+      expect(prismaMock.membership.update).toHaveBeenCalledWith({
+        where: { memberId_workgroupId_startDate: compositeId },
+        data: updateData,
+      });
     });
 
-    const membership = await response.json();
+     it('should return 404 if membership to update is not found', async () => {
+        const updateData = { role: MembershipRole.ASSISTANT };
+        prismaMock.membership.update.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found
+        (req.json as jest.Mock).mockResolvedValue(updateData);
 
-    expect(response.status).toBe(200);
-    expect(membership).toHaveProperty('endDate', updatedEndDate);
-  });
+        const response = await PUT(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+        const data = await response.json();
 
-  it('should return a 500 error if there is a server error', async () => {
-    // Mock PrismaClient to simulate an error
-    jest.spyOn(prisma.membership, 'update').mockImplementation(() => {
-      throw new Error('Simulated database error');
+        expect(response.status).toBe(404);
+        expect(data).toEqual({ message: 'Membership not found' });
+        expect(prismaMock.membership.update).toHaveBeenCalledTimes(1);
     });
 
-    const updatedData = { endDate: new Date('2023-12-31').toISOString() };
-    const params = { memberId: memberId.toString(), workgroupId: workgroupId.toString(), startDate: formattedStartDate };
-    const requestUrl = `http://localhost/api/memberships/${params.memberId}_${params.workgroupId}_${params.startDate}`;
 
-    const request = new Request('http://localhost', { // Provide a valid URL
-      method: 'PUT',
-      body: JSON.stringify(updatedData),
+    it('should return a 500 error if there is a database error', async () => {
+      const updateData = { role: MembershipRole.ASSISTANT };
+      prismaMock.membership.update.mockRejectedValue(new Error('Simulated database error'));
+      (req.json as jest.Mock).mockResolvedValue(updateData);
+
+
+      const response = await PUT(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to update membership. Please check server logs.' }); // Match route error message
+      expect(prismaMock.membership.update).toHaveBeenCalledTimes(1);
     });
-    const response = await PUT(request, { params });
-    const error = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(error).toHaveProperty('error', 'Failed to update membership');
-
-    // Restore the original implementation
-    jest.restoreAllMocks();
-  });
-});
-
-describe('DELETE', () => {
-  it('should delete a membership if found', async () => {
-    const request = new Request(
-      `http://localhost/api/memberships/${createdMemberId}_${createdWorkgroupId}_${formattedStartDate}`,
-      {
-        method: 'DELETE',
-      },
-    );
-    const response = await DELETE(request, { params: { memberId: memberId.toString(), workgroupId: workgroupId.toString(), startDate: formattedStartDate } });
-    const result = await response.json();
-    expect(response.status).toBe(200);
-    expect(result).toHaveProperty('message', 'Membership deleted');
-
-    const params = { memberId: memberId.toString(), workgroupId: workgroupId.toString(), startDate: formattedStartDate };
-
-    // Verify that the membership is actually deleted
-    const deletedMembership = await prisma.membership.findUnique({
-      where: {
-        memberId_workgroupId_startDate: {
-          memberId: Number(memberId),
-          workgroupId: Number(workgroupId),
-          startDate: new Date(startDate),
-        },
-      },
-    });
-    expect(deletedMembership).toBeNull();
+    // Add tests for validation errors
   });
 
-  it('should return a 500 error if there is a server error', async () => {
-    // Mock PrismaClient to simulate an error
-    jest.spyOn(prisma.membership, 'delete').mockImplementation(() => {
-      throw new Error('Simulated database error');
+  describe('DELETE', () => {
+    it('should delete a membership if found and return 204', async () => {
+       prismaMock.membership.delete.mockResolvedValue(mockMembership as any); // Mock the deleted record
+
+      const response = await DELETE(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+
+      // DELETE should return 204 No Content
+      expect(response.status).toBe(204);
+       expect(response.body).toBeNull(); // Check body is null for 204
+
+      expect(prismaMock.membership.delete).toHaveBeenCalledTimes(1);
+      expect(prismaMock.membership.delete).toHaveBeenCalledWith({
+        where: { memberId_workgroupId_startDate: compositeId },
+      });
     });
 
-    const request = new Request(
-      `http://localhost/api/memberships/${createdMemberId}_${createdWorkgroupId}_${formattedStartDate}`,
-      {
-        method: 'DELETE',
-      },
-    );
-    const params = { memberId: memberId.toString(), workgroupId: workgroupId.toString(), startDate: formattedStartDate };
-    const response = await DELETE(request, { params });
-    const error = await response.json();
+     it('should return 404 if membership to delete is not found', async () => {
+        prismaMock.membership.delete.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found
 
-    expect(response.status).toBe(500);
-    expect(error).toHaveProperty('error', 'Failed to delete membership');
+        const response = await DELETE(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+        const data = await response.json();
 
-    // Restore the original implementation
-    jest.restoreAllMocks();
+        expect(response.status).toBe(404);
+        expect(data).toEqual({ message: 'Membership not found' });
+        expect(prismaMock.membership.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return a 500 error if there is a database error', async () => {
+       prismaMock.membership.delete.mockRejectedValue(new Error('Simulated database error'));
+
+      const response = await DELETE(req, { params: { memberId: String(memberId), workgroupId: String(workgroupId), startDate: startDateISO } });
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to delete membership. Please check server logs.' }); // Match route error message
+      expect(prismaMock.membership.delete).toHaveBeenCalledTimes(1);
+    });
   });
-});
 });

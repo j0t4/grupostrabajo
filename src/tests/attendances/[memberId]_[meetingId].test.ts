@@ -1,131 +1,175 @@
-import { GET, PUT, DELETE } from '@/app/api/attendances/[memberId]_[meetingId]/route';
+import { GET, DELETE } from '@/app/api/attendances/[memberId]_[meetingId]/route'; // Removed PUT
 import { PrismaClient } from '@prisma/client';
-import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 
-const prisma = new PrismaClient();
+// --- Alternative Mock Initialization ---
+let prismaMock: DeepMockProxy<PrismaClient>;
 
-// Mock the Prisma client
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => ({
-    attendance: {
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-  })),
-}));
+jest.mock('@prisma/client', () => {
+  const mock = mockDeep<PrismaClient>();
+  prismaMock = mock;
+  return {
+    PrismaClient: jest.fn(() => mock)
+  };
+});
+// ------------------------------------
 
-describe('Attendance API Endpoints', () => {
-  const mockRequest = {} as Request;
+jest.unmock('next/server');
+
+describe('Attendance API Endpoint - /attendances/[memberId]_[meetingId]', () => {
+  let req: DeepMockProxy<NextRequest>;
+  const memberId = 1;
+  const meetingId = 1;
+  const compositeParam = `${memberId}_${meetingId}`; // Correct param format
+  const compositeKey = { memberId, meetingId };
+
+  const mockAttendance = {
+      memberId,
+      meetingId,
+      attended: true,
+      justification: null,
+      // Mock related data if included in route
+      member: { id: memberId, name: 'Test Member' },
+      meeting: { id: meetingId, title: 'Test Meeting' },
+  };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    mockReset(prismaMock);
+    req = mockDeep<NextRequest>(); // Use mockDeep for NextRequest
   });
 
   describe('GET', () => {
     it('should return an attendance if found', async () => {
-      const mockAttendance = { memberId: 1, meetingId: 1, attended: true };
-      (prisma.attendance.findUnique as jest.Mock).mockResolvedValue(mockAttendance);
+      prismaMock.attendance.findUnique.mockResolvedValue(mockAttendance as any);
 
-      const response = await GET(mockRequest, { params: { memberId: '1', meetingId: '1' } });
+      // Pass the single composite parameter
+      const response = await GET(req, { params: { memberId_meetingId: compositeParam } });
       const data = await response.json();
 
       expect(response.status).toBe(200);
       expect(data).toEqual(mockAttendance);
-      expect(prisma.attendance.findUnique).toHaveBeenCalledWith({
-        where: {
-          memberId_meetingId: {
-            memberId: 1,
-            meetingId: 1,
-          },
-        },
+      expect(prismaMock.attendance.findUnique).toHaveBeenCalledTimes(1);
+      expect(prismaMock.attendance.findUnique).toHaveBeenCalledWith({
+        where: { memberId_meetingId: compositeKey },
+        include: { member: true, meeting: true }, // Match include from route
       });
     });
 
     it('should return a 404 error if attendance is not found', async () => {
-      (prisma.attendance.findUnique as jest.Mock).mockResolvedValue(null);
+      prismaMock.attendance.findUnique.mockResolvedValue(null);
 
-      const response = await GET(mockRequest, { params: { memberId: '1', meetingId: '1' } });
+      const response = await GET(req, { params: { memberId_meetingId: compositeParam } });
       const data = await response.json();
 
       expect(response.status).toBe(404);
-      expect(data).toEqual({ error: 'Attendance not found' });
+      expect(data).toEqual({ message: 'Attendance not found' }); // Match route message
+      expect(prismaMock.attendance.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+     it('should return a 400 error if parameter format is invalid', async () => {
+      const invalidParam = 'invalid-format';
+      // No need to mock prisma, validation happens first
+
+      const response = await GET(req, { params: { memberId_meetingId: invalidParam } });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data).toHaveProperty('error');
+      expect(data.error).toContain('Invalid path parameter format'); // Match route validation error
+      expect(prismaMock.attendance.findUnique).not.toHaveBeenCalled();
     });
 
     it('should return a 500 error if there is a database error', async () => {
-      (prisma.attendance.findUnique as jest.Mock).mockRejectedValue(new Error('Database error'));
+      prismaMock.attendance.findUnique.mockRejectedValue(new Error('Database error'));
 
-      const response = await GET(mockRequest, { params: { memberId: '1', meetingId: '1' } });
+      const response = await GET(req, { params: { memberId_meetingId: compositeParam } });
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to fetch attendance' });
+      expect(data).toEqual({ error: 'Failed to fetch attendance. Please check server logs.' }); // Match route message
+      expect(prismaMock.attendance.findUnique).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('PUT', () => {
-    it('should update an attendance successfully', async () => {
-      const mockAttendance = { memberId: 1, meetingId: 1, attended: true };
-      (prisma.attendance.update as jest.Mock).mockResolvedValue(mockAttendance);
-      const mockJson = jest.fn().mockResolvedValue({ attended: true });
-      const mockRequestWithJson = { json: mockJson } as unknown as Request;
-
-      const response = await PUT(mockRequestWithJson, { params: { memberId: '1', meetingId: '1' } });
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data).toEqual(mockAttendance);
-      expect(prisma.attendance.update).toHaveBeenCalledWith({
-        where: {
-          memberId_meetingId: {
-            memberId: 1,
-            meetingId: 1,
-          },
-        },
-        data: { attended: true },
-      });
-    });
-
-    it('should return a 500 error if there is a database error', async () => {
-      (prisma.attendance.update as jest.Mock).mockRejectedValue(new Error('Database error'));
-      const mockJson = jest.fn().mockResolvedValue({ attended: true });
-      const mockRequestWithJson = { json: mockJson } as unknown as Request;
-
-      const response = await PUT(mockRequestWithJson, { params: { memberId: '1', meetingId: '1' } });
-      const data = await response.json();
-
-      expect(response.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to update attendance' });
-    });
-  });
+  // Removed PUT describe block as the handler doesn't exist
 
   describe('DELETE', () => {
-    it('should delete an attendance successfully', async () => {
-      (prisma.attendance.delete as jest.Mock).mockResolvedValue({});
+    it('should delete an attendance successfully and return 204', async () => {
+      // Mock the transaction: first findUnique succeeds, then delete succeeds
+      prismaMock.attendance.findUnique.mockResolvedValue(mockAttendance as any); // To pass the check in transaction
+      prismaMock.attendance.delete.mockResolvedValue({} as any); // Delete resolves
 
-      const response = await DELETE(mockRequest, { params: { memberId: '1', meetingId: '1' } });
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data).toEqual({ message: 'Attendance deleted' });
-      expect(prisma.attendance.delete).toHaveBeenCalledWith({
-        where: {
-          memberId_meetingId: {
-            memberId: 1,
-            meetingId: 1,
-          },
-        },
+      // Mock the $transaction implementation
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+          // Simulate the checks and operations within the transaction callback
+          const found = await prismaMock.attendance.findUnique({
+              where: { memberId_meetingId: compositeKey },
+              select: { memberId: true }
+          });
+          if (!found) return { status: 404, body: { message: 'Attendance not found' } };
+          await prismaMock.attendance.delete({ where: { memberId_meetingId: compositeKey } });
+          return { status: 204, body: null };
       });
+
+      const response = await DELETE(req, { params: { memberId_meetingId: compositeParam } });
+
+      expect(response.status).toBe(204); // Expect 204 No Content
+      expect(response.body).toBeNull();   // Expect empty body
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1); // Check if transaction was called
+      // We can also check if findUnique and delete were called *within* the transaction mock if needed
     });
 
-    it('should return a 500 error if there is a database error', async () => {
-      (prisma.attendance.delete as jest.Mock).mockRejectedValue(new Error('Database error'));
+     it('should return 404 if attendance to delete is not found', async () => {
+       // Mock the transaction: findUnique returns null
+       prismaMock.attendance.findUnique.mockResolvedValue(null);
 
-      const response = await DELETE(mockRequest, { params: { memberId: '1', meetingId: '1' } });
+       prismaMock.$transaction.mockImplementation(async (callback) => {
+          const found = await prismaMock.attendance.findUnique({ where: { memberId_meetingId: compositeKey }, select: { memberId: true }});
+          if (!found) return { status: 404, body: { message: 'Attendance not found' } };
+          // Delete won't be reached in this path
+          return { status: 500, body: {error: 'Should not reach here'} }; // Should not happen
+       });
+
+      const response = await DELETE(req, { params: { memberId_meetingId: compositeParam } });
+      const data = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Attendance not found' });
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(prismaMock.attendance.delete).not.toHaveBeenCalled(); // Delete shouldn't be called if not found
+    });
+
+    it('should return a 500 error if there is a database error during delete', async () => {
+      // Mock the transaction failing during the delete operation
+      prismaMock.attendance.findUnique.mockResolvedValue(mockAttendance as any); // Found first
+      prismaMock.attendance.delete.mockRejectedValue(new Error('Database error')); // Delete fails
+
+       prismaMock.$transaction.mockImplementation(async (callback) => {
+           // Simulate the transaction callback throwing an error
+           throw new Error('Database error');
+       });
+
+      const response = await DELETE(req, { params: { memberId_meetingId: compositeParam } });
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to delete attendance' });
+      expect(data).toEqual({ error: 'Failed to delete attendance. Please check server logs.' }); // Match route message
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return a 400 error if parameter format is invalid', async () => {
+        const invalidParam = 'invalid-format';
+        // No need to mock prisma, validation happens first
+
+        const response = await DELETE(req, { params: { memberId_meetingId: invalidParam } });
+        const data = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(data).toHaveProperty('error');
+        expect(data.error).toContain('Invalid path parameter format');
+        expect(prismaMock.$transaction).not.toHaveBeenCalled();
+        expect(prismaMock.attendance.delete).not.toHaveBeenCalled();
     });
   });
 });

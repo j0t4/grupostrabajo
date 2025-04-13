@@ -3,28 +3,27 @@ import { PrismaClient, LogbookEntryType, LogbookEntryStatus } from '@prisma/clie
 import { NextRequest } from 'next/server';
 import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 
-// --- Correct Initialization Order ---
-// 1. Declare the mock variable
+// --- Original Mock Initialization Pattern ---
 const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-// 2. Mock the module *using* the declared variable
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn(() => prismaMock),
-  LogbookEntryType: {
-    ATTENDEES: 'ATTENDEES',
-    AGENDA: 'AGENDA',
-    DOCUMENTATION: 'DOCUMENTATION',
-    MINUTES: 'MINUTES'
-  },
-  LogbookEntryStatus: {
-    ACTIVE: 'ACTIVE',
-    RESOLVED: 'RESOLVED'
-  }
-}));
+jest.mock('@prisma/client', () => {
+  return {
+    PrismaClient: jest.fn(() => prismaMock),
+    LogbookEntryType: {
+      ATTENDEES: 'ATTENDEES',
+      AGENDA: 'AGENDA',
+      DOCUMENTATION: 'DOCUMENTATION',
+      MINUTES: 'MINUTES'
+    },
+    LogbookEntryStatus: {
+      ACTIVE: 'ACTIVE',
+      RESOLVED: 'RESOLVED'
+    }
+  };
+});
 // ------------------------------------
 
-// Mock NextResponse if needed (or unmock)
-// jest.mock('next/server', () => ({ ... }));
+jest.unmock('next/server');
 
 describe('Logbook Entries API - /logbookEntries/[id]', () => {
   let req: DeepMockProxy<NextRequest>;
@@ -91,7 +90,7 @@ describe('Logbook Entries API - /logbookEntries/[id]', () => {
       const updateData = { description: 'Updated logbook entry', status: LogbookEntryStatus.RESOLVED };
       const updatedEntry = { ...existingEntry, ...updateData };
 
-      prismaMock.logbookEntry.findUnique.mockResolvedValue(existingEntry as any);
+      // prismaMock.logbookEntry.findUnique.mockResolvedValue(existingEntry as any); // Needed if route checks first
       prismaMock.logbookEntry.update.mockResolvedValue(updatedEntry as any);
       (req.json as jest.Mock).mockResolvedValue(updateData);
 
@@ -107,7 +106,7 @@ describe('Logbook Entries API - /logbookEntries/[id]', () => {
      it('should return 404 if logbook entry to update is not found', async () => {
         const entryId = 99;
         const updateData = { description: 'Updated logbook entry' };
-        prismaMock.logbookEntry.update.mockRejectedValue({ code: 'P2025' });
+        prismaMock.logbookEntry.update.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found
         (req.json as jest.Mock).mockResolvedValue(updateData);
 
         const response = await PUT(req, { params: { id: String(entryId) } });
@@ -141,13 +140,14 @@ describe('Logbook Entries API - /logbookEntries/[id]', () => {
       const response = await DELETE(req, { params: { id: String(entryId) } });
 
       expect(response.status).toBe(204);
+      expect(response.body).toBeNull(); // Check body is null for 204
       expect(prismaMock.logbookEntry.delete).toHaveBeenCalledWith({ where: { id: entryId } });
       expect(prismaMock.logbookEntry.delete).toHaveBeenCalledTimes(1);
     });
 
     it('should return 404 if logbook entry to delete is not found', async () => {
         const entryId = 99;
-        prismaMock.logbookEntry.delete.mockRejectedValue({ code: 'P2025' });
+        prismaMock.logbookEntry.delete.mockRejectedValue({ code: 'P2025' }); // Simulate Prisma not found
 
         const response = await DELETE(req, { params: { id: String(entryId) } });
         const data = await response.json();
