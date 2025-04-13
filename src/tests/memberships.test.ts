@@ -1,82 +1,140 @@
-import { GET, POST } from '../src/app/api/memberships/route';
-import { PrismaClient } from '@prisma/client';
-import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
-import { NextRequest } from 'next/server';
+import { GET, POST } from '@/app/api/memberships/route'; // Use alias
+import { PrismaClient, MembershipRole } from '@prisma/client';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
+import { NextRequest, NextResponse } from 'next/server';
 
-const prismaMock: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
+// --- Correct Initialization Order ---
+// 1. Declare the mock variable
+const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
+// 2. Mock the module *using* the declared variable
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn(() => prismaMock),
+  MembershipRole: {
+     PRESIDENT: 'PRESIDENT',
+     SECRETARY: 'SECRETARY',
+     ASSISTANT: 'ASSISTANT',
+     GUEST: 'GUEST'
+   }
 }));
+// ------------------------------------
 
-describe('Memberships API', () => {
+jest.unmock('next/server'); // Use real NextResponse
+
+describe('Memberships API - /memberships', () => {
+  let req: DeepMockProxy<NextRequest>;
+
   beforeEach(() => {
-    jest.resetAllMocks();
+    mockReset(prismaMock);
+    // Mock NextRequest with a URL for GET tests
+    req = mockDeep<NextRequest>();
+    // Provide a default URL, can be overridden in specific tests
+    Object.defineProperty(req, 'url', {
+        value: 'http://localhost/api/memberships',
+        writable: true,
+    });
   });
 
   describe('GET', () => {
-    it('should return all memberships', async () => {
-      const mockMemberships = [{ id: 1, memberId: 1, workgroupId: 1, startDate: new Date() }];
-      prismaMock.membership.findMany.mockResolvedValue(mockMemberships);
+    it('should return all memberships with serialized dates', async () => {
+      const mockMemberships = [
+        { memberId: 1, workgroupId: 1, role: MembershipRole.PRESIDENT, startDate: new Date(), endDate: new Date(), endDateDescription: null },
+        { memberId: 2, workgroupId: 1, role: MembershipRole.ASSISTANT, startDate: new Date(), endDate: null, endDateDescription: null }
+      ];
+      prismaMock.membership.findMany.mockResolvedValue(mockMemberships as any);
 
-      const response = await GET();
+      const response = await GET(req); // Pass the mocked request
       const data = await response.json();
 
+      const expectedData = mockMemberships.map(m => ({
+           ...m,
+           startDate: m.startDate.toISOString(),
+           endDate: m.endDate ? m.endDate.toISOString() : null
+       }));
+
       expect(response.status).toBe(200);
-      expect(data).toEqual(mockMemberships);
+      expect(data).toEqual(expectedData);
       expect(prismaMock.membership.findMany).toHaveBeenCalledTimes(1);
+      expect(prismaMock.membership.findMany).toHaveBeenCalledWith({ where: {}, include: { member: true, workgroup: true } }); // Check default call args
     });
 
-    it('should handle errors', async () => {
+     it('should filter memberships by query parameters', async () => {
+      const mockMemberships = [
+        { memberId: 1, workgroupId: 1, role: MembershipRole.PRESIDENT, startDate: new Date(), endDate: null, endDateDescription: null },
+      ];
+      prismaMock.membership.findMany.mockResolvedValue(mockMemberships as any);
+
+      // Mock URL with query params
+       Object.defineProperty(req, 'url', {
+           value: 'http://localhost/api/memberships?memberId=1&workgroupId=1',
+           writable: true,
+       });
+
+      const response = await GET(req);
+      const data = await response.json();
+
+      const expectedData = mockMemberships.map(m => ({ ...m, startDate: m.startDate.toISOString() }));
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual(expectedData);
+      expect(prismaMock.membership.findMany).toHaveBeenCalledTimes(1);
+      expect(prismaMock.membership.findMany).toHaveBeenCalledWith({
+        where: { memberId: 1, workgroupId: 1 },
+        include: { member: true, workgroup: true }
+      });
+    });
+
+    it('should handle errors during GET', async () => {
       prismaMock.membership.findMany.mockRejectedValue(new Error('Database error'));
 
-      const response = await GET();
+      const response = await GET(req); // Pass the mocked request
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to fetch memberships' });
+      expect(data).toEqual({ error: 'Failed to fetch memberships. Please check server logs.' });
       expect(prismaMock.membership.findMany).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('POST', () => {
-    it('should create a new membership', async () => {
-      const newMembership = { memberId: 2, workgroupId: 2, startDate: new Date() };
-      const createdMembership = { id: 2, ...newMembership };
-      prismaMock.membership.create.mockResolvedValue(createdMembership);
+    it('should create a new membership and return serialized dates', async () => {
+      const newMembershipInput = { memberId: 2, workgroupId: 2, role: MembershipRole.GUEST };
+      const createdMembership = { ...newMembershipInput, startDate: new Date(), endDate: null, endDateDescription: null };
+      prismaMock.membership.create.mockResolvedValue(createdMembership as any);
+      (req.json as jest.Mock).mockResolvedValue(newMembershipInput);
 
-      const mockRequest = {
-        json: async () => newMembership,
-      } as unknown as NextRequest;
-
-      const response = await POST(mockRequest);
+      const response = await POST(req);
       const data = await response.json();
 
+      const expectedData = {
+          ...createdMembership,
+          startDate: createdMembership.startDate.toISOString(), // Serialize date
+          endDate: null
+      };
+
       expect(response.status).toBe(201);
-      expect(data).toEqual(createdMembership);
+      expect(data).toEqual(expectedData);
       expect(prismaMock.membership.create).toHaveBeenCalledTimes(1);
-      expect(prismaMock.membership.create).toHaveBeenCalledWith({
-        data: newMembership,
-      });
+      // Prisma automatically handles default startDate, so input data shouldn't include it typically
+      expect(prismaMock.membership.create).toHaveBeenCalledWith({ data: newMembershipInput });
     });
 
-    it('should handle errors', async () => {
-      const newMembership = { memberId: 2, workgroupId: 2, startDate: new Date() };
+    it('should handle errors during POST', async () => {
+      const newMembershipInput = { memberId: 2, workgroupId: 2, role: MembershipRole.GUEST };
       prismaMock.membership.create.mockRejectedValue(new Error('Database error'));
+      (req.json as jest.Mock).mockResolvedValue(newMembershipInput);
 
-      const mockRequest = {
-        json: async () => newMembership,
-      } as unknown as NextRequest;
-
-      const response = await POST(mockRequest);
+      const response = await POST(req);
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to create membership' });
+      expect(data).toEqual({ error: 'Failed to create membership. Please check server logs.' });
       expect(prismaMock.membership.create).toHaveBeenCalledTimes(1);
-      expect(prismaMock.membership.create).toHaveBeenCalledWith({
-        data: newMembership,
-      });
+      expect(prismaMock.membership.create).toHaveBeenCalledWith({ data: newMembershipInput });
     });
+
+     // Add tests for validation errors (Zod)
+     // Add tests for 404 if member/workgroup not found
+     // Add tests for 409 conflict if membership already exists
   });
 });

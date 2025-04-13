@@ -1,110 +1,173 @@
 import { GET, PUT, DELETE } from '@/app/api/meetings/[id]/route';
-import { PrismaClient } from '@prisma/client';
-import { NextRequest } from 'next/server';
-import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
+import { PrismaClient, MeetingType } from '@prisma/client';
+import { NextRequest, NextResponse } from 'next/server';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 
-const prismaMock = mockDeep<PrismaClient>();
+// --- Correct Initialization Order ---
+// 1. Declare the mock variable
+const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-// Mock the Prisma client import
+// 2. Mock the module *using* the declared variable
 jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockReturnValue(prismaMock),
+  PrismaClient: jest.fn(() => prismaMock),
+  MeetingType: {
+      PRESENTIAL: 'PRESENTIAL',
+      ONLINE: 'ONLINE'
+  }
 }));
+// ------------------------------------
 
-describe('Meeting API Endpoints', () => {
+jest.unmock('next/server'); // Use real NextResponse
+
+describe('Meeting API Endpoints - /meetings/[id]', () => {
   let req: DeepMockProxy<NextRequest>;
 
   beforeEach(() => {
+    mockReset(prismaMock);
     req = mockDeep<NextRequest>();
+  });
+
+  const createMockMeeting = (id: number, workgroupId: number) => ({
+      id,
+      workgroupId,
+      title: `Meeting ${id}`,
+      description: 'Test Description',
+      date: new Date(),
+      type: MeetingType.PRESENTIAL,
+      observations: null,
+      agenda: null,
+      minutes: null,
   });
 
   describe('GET', () => {
     it('should return a meeting if found', async () => {
-      const meeting = { id: 1, name: 'Test Meeting' };
-      prismaMock.meeting.findUnique.mockResolvedValue(meeting);
+      const meetingId = 1;
+      const workgroupId = 1;
+      const mockMeeting = createMockMeeting(meetingId, workgroupId);
+      prismaMock.meeting.findUnique.mockResolvedValue(mockMeeting as any);
 
-      const res = await GET(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await GET(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(data).toEqual(meeting);
-      expect(prismaMock.meeting.findUnique).toHaveBeenCalledWith({
-        where: { id: 1 },
-      });
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ ...mockMeeting, date: mockMeeting.date.toISOString() });
+      expect(prismaMock.meeting.findUnique).toHaveBeenCalledWith({ where: { id: meetingId } });
+      expect(prismaMock.meeting.findUnique).toHaveBeenCalledTimes(1);
     });
 
     it('should return 404 if meeting not found', async () => {
+      const meetingId = 99;
       prismaMock.meeting.findUnique.mockResolvedValue(null);
 
-      const res = await GET(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await GET(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
 
-      expect(res.status).toBe(404);
-      expect(data).toEqual({ error: 'Meeting not found' });
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Meeting not found' });
+      expect(prismaMock.meeting.findUnique).toHaveBeenCalledWith({ where: { id: meetingId } });
+      expect(prismaMock.meeting.findUnique).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 500 if there is an error', async () => {
-      prismaMock.meeting.findUnique.mockRejectedValue(new Error('Test error'));
+    it('should return 500 on database error', async () => {
+      const meetingId = 1;
+      prismaMock.meeting.findUnique.mockRejectedValue(new Error('DB Error'));
 
-      const res = await GET(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await GET(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
 
-      expect(res.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to fetch meeting' });
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to fetch meeting. Please check server logs.' });
+      expect(prismaMock.meeting.findUnique).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('PUT', () => {
     it('should update a meeting', async () => {
-      const updatedMeeting = { id: 1, name: 'Updated Meeting' };
-      prismaMock.meeting.update.mockResolvedValue(updatedMeeting);
+      const meetingId = 1;
+      const workgroupId = 1;
+      const existingMeeting = createMockMeeting(meetingId, workgroupId);
+      const updateData = { title: 'Updated Meeting Title', type: MeetingType.ONLINE };
+      const updatedMeeting = { ...existingMeeting, ...updateData };
 
-      req.json.mockResolvedValue({ name: 'Updated Meeting' });
+      prismaMock.meeting.findUnique.mockResolvedValue(existingMeeting as any);
+      prismaMock.meeting.update.mockResolvedValue(updatedMeeting as any);
+      (req.json as jest.Mock).mockResolvedValue(updateData);
 
-      const res = await PUT(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await PUT(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(data).toEqual(updatedMeeting);
-      expect(prismaMock.meeting.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { name: 'Updated Meeting' },
-      });
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ ...updatedMeeting, date: updatedMeeting.date.toISOString() });
+      expect(prismaMock.meeting.update).toHaveBeenCalledWith({ where: { id: meetingId }, data: updateData });
+      expect(prismaMock.meeting.update).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 500 if there is an error', async () => {
-      prismaMock.meeting.update.mockRejectedValue(new Error('Test error'));
-      req.json.mockResolvedValue({ name: 'Updated Meeting' });
+    it('should return 404 if meeting to update not found', async () => {
+      const meetingId = 99;
+      const updateData = { title: 'Updated Meeting Title' };
+      prismaMock.meeting.update.mockRejectedValue({ code: 'P2025' });
+      (req.json as jest.Mock).mockResolvedValue(updateData);
 
-      const res = await PUT(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await PUT(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
 
-      expect(res.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to update meeting' });
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Meeting not found' });
+      expect(prismaMock.meeting.update).toHaveBeenCalledTimes(1);
     });
+
+    it('should return 500 on database error', async () => {
+      const meetingId = 1;
+      const updateData = { title: 'Updated Meeting Title' };
+      prismaMock.meeting.update.mockRejectedValue(new Error('DB Error'));
+      (req.json as jest.Mock).mockResolvedValue(updateData);
+
+      const response = await PUT(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to update meeting. Please check server logs.' });
+      expect(prismaMock.meeting.update).toHaveBeenCalledTimes(1);
+    });
+    // Add tests for validation errors (Zod)
   });
 
   describe('DELETE', () => {
-    it('should delete a meeting', async () => {
-      prismaMock.meeting.delete.mockResolvedValue({} as any); // Mock successful deletion
+    it('should delete a meeting and return 204', async () => {
+      const meetingId = 1;
+      prismaMock.meeting.delete.mockResolvedValue({} as any);
 
-      const res = await DELETE(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await DELETE(req, { params: { id: String(meetingId) } });
 
-      expect(res.status).toBe(200);
-      expect(data).toEqual({ message: 'Meeting deleted' });
-      expect(prismaMock.meeting.delete).toHaveBeenCalledWith({
-        where: { id: 1 },
-      });
+      expect(response.status).toBe(204);
+      expect(response.body).toBeNull();
+      expect(prismaMock.meeting.delete).toHaveBeenCalledWith({ where: { id: meetingId } });
+      expect(prismaMock.meeting.delete).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 500 if there is an error', async () => {
-      prismaMock.meeting.delete.mockRejectedValue(new Error('Test error'));
+    it('should return 404 if meeting to delete not found', async () => {
+      const meetingId = 99;
+      prismaMock.meeting.delete.mockRejectedValue({ code: 'P2025' });
 
-      const res = await DELETE(req, { params: { id: '1' } });
-      const data = await res.json();
+      const response = await DELETE(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
 
-      expect(res.status).toBe(500);
-      expect(data).toEqual({ error: 'Failed to delete meeting' });
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Meeting not found' });
+      expect(prismaMock.meeting.delete).toHaveBeenCalledTimes(1);
     });
+
+    it('should return 500 on database error', async () => {
+      const meetingId = 1;
+      prismaMock.meeting.delete.mockRejectedValue(new Error('DB Error'));
+
+      const response = await DELETE(req, { params: { id: String(meetingId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to delete meeting. Please check server logs.' });
+      expect(prismaMock.meeting.delete).toHaveBeenCalledTimes(1);
+    });
+    // Add tests for constraint errors (e.g., linked attendances if onDelete isn't CASCADE)
   });
 });

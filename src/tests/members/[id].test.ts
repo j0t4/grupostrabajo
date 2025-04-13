@@ -1,125 +1,179 @@
-import { GET, PUT, DELETE } from '../../src/app/api/members/[id]/route';
-import { PrismaClient } from '@prisma/client';
-import { NextRequest } from 'next/server';
+import { GET, PUT, DELETE } from '@/app/api/members/[id]/route'; // Use alias
+import { PrismaClient, MemberStatus } from '@prisma/client';
+import { NextRequest, NextResponse } from 'next/server';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
+import { faker } from '@faker-js/faker';
 
-const prisma = new PrismaClient();
+// --- Correct Initialization Order ---
+// 1. Declare the mock variable
+const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-// Mock the PrismaClient and NextResponse
-jest.mock('@prisma/client');
-jest.mock('next/server', () => ({
-  NextResponse: {
-    json: jest.fn((data, options) => ({ body: JSON.stringify(data), ...options })),
-  },
+// 2. Mock the module *using* the declared variable
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn(() => prismaMock),
+  MemberStatus: {
+      ACTIVE: 'ACTIVE',
+      INACTIVE: 'INACTIVE'
+  }
 }));
+// ------------------------------------
 
-describe('Member API Endpoints', () => {
-  let mockMember: any;
+// Keep NextResponse *unmocked* unless absolutely necessary
+// This makes tests closer to reality and avoids complex mock maintenance
+jest.unmock('next/server');
+
+describe('Member API Endpoints - /members/[id]', () => {
+  let req: DeepMockProxy<NextRequest>;
 
   beforeEach(() => {
-    mockMember = { id: 1, name: 'John Doe', email: 'john.doe@example.com' };
-    (prisma.member.findUnique as jest.Mock).mockResolvedValue(null);
-    (prisma.member.update as jest.Mock).mockResolvedValue(null);
-    (prisma.member.delete as jest.Mock).mockResolvedValue(null);
-    (NextResponse.json as jest.Mock).mockImplementation((data, options) => ({
-      ...options,
-      body: JSON.stringify(data),
-    }));
+    mockReset(prismaMock); // Reset mocks before each test
+    req = mockDeep<NextRequest>(); // Use mockDeep for NextRequest as well
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
+  // Helper function to create a mock member
+  const createMockMember = (id: number) => ({
+    id,
+    name: faker.person.firstName(),
+    surname: faker.person.lastName(),
+    email: faker.internet.email(),
+    dni: faker.string.alphanumeric(9),
+    status: MemberStatus.ACTIVE,
+    position: null, organization: null, phone1: null, phone1Description: null,
+    phone2: null, phone2Description: null, phone3: null, phone3Description: null,
+    deactivationDate: null, deactivationDescription: null
   });
 
   describe('GET', () => {
     it('should return a member if found', async () => {
-      (prisma.member.findUnique as jest.Mock).mockResolvedValue(mockMember);
+      const memberId = 1;
+      const mockMember = createMockMember(memberId);
+      prismaMock.member.findUnique.mockResolvedValue(mockMember as any);
 
-      const req = {} as NextRequest;
-      const params = { id: '1' };
-      const res = await GET(req, { params: params });
+      const response = await GET(req, { params: { id: String(memberId) } });
+      const data = await response.json();
 
-      expect(prisma.member.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
-      expect(NextResponse.json).toHaveBeenCalledWith(mockMember);
-      expect(res.body).toEqual(JSON.stringify(mockMember));
+      expect(response.status).toBe(200);
+      expect(data).toEqual(mockMember);
+      expect(prismaMock.member.findUnique).toHaveBeenCalledWith({ where: { id: memberId } });
+      expect(prismaMock.member.findUnique).toHaveBeenCalledTimes(1);
     });
 
     it('should return 404 if member is not found', async () => {
-      const req = {} as NextRequest;
-      const params = { id: '1' };
-      const res = await GET(req, { params: params });
+      const memberId = 99;
+      prismaMock.member.findUnique.mockResolvedValue(null);
 
-      expect(prisma.member.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
-      expect(NextResponse.json).toHaveBeenCalledWith({ error: 'Member not found' }, { status: 404 });
-      expect(res.status).toEqual(404);
+      const response = await GET(req, { params: { id: String(memberId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Member not found' }); // Match the actual error message from route
+      expect(prismaMock.member.findUnique).toHaveBeenCalledWith({ where: { id: memberId } });
+      expect(prismaMock.member.findUnique).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 500 if there is an error', async () => {
-      (prisma.member.findUnique as jest.Mock).mockRejectedValue(new Error('Database error'));
+    it('should return 500 if there is a database error', async () => {
+      const memberId = 1;
+      prismaMock.member.findUnique.mockRejectedValue(new Error('Database error'));
 
-      const req = {} as NextRequest;
-      const params = { id: '1' };
-      const res = await GET(req, { params: params });
+      const response = await GET(req, { params: { id: String(memberId) } });
+      const data = await response.json();
 
-      expect(prisma.member.findUnique).toHaveBeenCalledWith({ where: { id: 1 } });
-      expect(NextResponse.json).toHaveBeenCalledWith({ error: 'Failed to fetch member' }, { status: 500 });
-      expect(res.status).toEqual(500);
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to fetch member. Please check server logs.' });
+      expect(prismaMock.member.findUnique).toHaveBeenCalledWith({ where: { id: memberId } });
+      expect(prismaMock.member.findUnique).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('PUT', () => {
     it('should update a member if found', async () => {
-      const updatedMember = { ...mockMember, name: 'Updated Name' };
-      (prisma.member.update as jest.Mock).mockResolvedValue(updatedMember);
+      const memberId = 1;
+      const existingMember = createMockMember(memberId);
+      const updateData = { name: 'Updated Name', email: faker.internet.email() };
+      const updatedMember = { ...existingMember, ...updateData };
 
-      const req = { json: async () => ({ name: 'Updated Name' }) } as NextRequest;
-      const params = { id: '1' };
-      const res = await PUT(req, { params: params });
+      prismaMock.member.findUnique.mockResolvedValue(existingMember as any);
+      prismaMock.member.update.mockResolvedValue(updatedMember as any);
+      (req.json as jest.Mock).mockResolvedValue(updateData); // Mock the request body
 
-      expect(prisma.member.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { name: 'Updated Name' },
-      });
-      expect(NextResponse.json).toHaveBeenCalledWith(updatedMember);
-      expect(res.body).toEqual(JSON.stringify(updatedMember));
+      const response = await PUT(req, { params: { id: String(memberId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual(updatedMember);
+      expect(prismaMock.member.update).toHaveBeenCalledWith({ where: { id: memberId }, data: updateData });
+      expect(prismaMock.member.update).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 500 if there is an error', async () => {
-      (prisma.member.update as jest.Mock).mockRejectedValue(new Error('Database error'));
+     it('should return 404 if member to update is not found', async () => {
+      const memberId = 99;
+      const updateData = { name: 'Updated Name' };
+      prismaMock.member.update.mockRejectedValue({ code: 'P2025' });
+      (req.json as jest.Mock).mockResolvedValue(updateData);
 
-      const req = { json: async () => ({ name: 'Updated Name' }) } as NextRequest;
-      const params = { id: '1' };
-      const res = await PUT(req, { params: params });
+      const response = await PUT(req, { params: { id: String(memberId) } });
+      const data = await response.json();
 
-      expect(prisma.member.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { name: 'Updated Name' },
-      });
-      expect(NextResponse.json).toHaveBeenCalledWith({ error: 'Failed to update member' }, { status: 500 });
-      expect(res.status).toEqual(500);
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Member not found' });
+      expect(prismaMock.member.update).toHaveBeenCalledWith({ where: { id: memberId }, data: updateData });
+      expect(prismaMock.member.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return 500 if there is a database error during update', async () => {
+      const memberId = 1;
+      const updateData = { name: 'Updated Name' };
+      prismaMock.member.update.mockRejectedValue(new Error('Database error'));
+      (req.json as jest.Mock).mockResolvedValue(updateData);
+
+      const response = await PUT(req, { params: { id: String(memberId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to update member. Please check server logs.' });
+      expect(prismaMock.member.update).toHaveBeenCalledWith({ where: { id: memberId }, data: updateData });
+      expect(prismaMock.member.update).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('DELETE', () => {
-    it('should delete a member if found', async () => {
-      const req = {} as NextRequest;
-      const params = { id: '1' };
-      const res = await DELETE(req, { params: params });
+    it('should delete a member if found and return 204', async () => {
+      const memberId = 1;
+      prismaMock.member.delete.mockResolvedValue({} as any);
 
-      expect(prisma.member.delete).toHaveBeenCalledWith({ where: { id: 1 } });
-      expect(NextResponse.json).toHaveBeenCalledWith({ message: 'Member deleted' });
-      expect(res.body).toEqual(JSON.stringify({ message: 'Member deleted' }));
+      const response = await DELETE(req, { params: { id: String(memberId) } });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toBeNull(); // Check body is null for 204
+
+      expect(prismaMock.member.delete).toHaveBeenCalledWith({ where: { id: memberId } });
+      expect(prismaMock.member.delete).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 500 if there is an error', async () => {
-      (prisma.member.delete as jest.Mock).mockRejectedValue(new Error('Database error'));
+     it('should return 404 if member to delete is not found', async () => {
+      const memberId = 99;
+      prismaMock.member.delete.mockRejectedValue({ code: 'P2025' });
 
-      const req = {} as NextRequest;
-      const params = { id: '1' };
-      const res = await DELETE(req, { params: params });
+      const response = await DELETE(req, { params: { id: String(memberId) } });
+      const data = await response.json();
 
-      expect(prisma.member.delete).toHaveBeenCalledWith({ where: { id: 1 } });
-      expect(NextResponse.json).toHaveBeenCalledWith({ error: 'Failed to delete member' }, { status: 500 });
-      expect(res.status).toEqual(500);
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Member not found' });
+      expect(prismaMock.member.delete).toHaveBeenCalledWith({ where: { id: memberId } });
+      expect(prismaMock.member.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return 500 if there is a database error during delete', async () => {
+      const memberId = 1;
+      prismaMock.member.delete.mockRejectedValue(new Error('Database error'));
+
+      const response = await DELETE(req, { params: { id: String(memberId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data).toEqual({ error: 'Failed to delete member. Please check server logs.' });
+      expect(prismaMock.member.delete).toHaveBeenCalledWith({ where: { id: memberId } });
+      expect(prismaMock.member.delete).toHaveBeenCalledTimes(1);
     });
   });
 });

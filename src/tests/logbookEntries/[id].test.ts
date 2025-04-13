@@ -1,88 +1,172 @@
-import { GET, PUT, DELETE } from '../../app/api/logbookEntries/[id]/route';
-import { PrismaClient } from '@prisma/client';
-import { NextResponse } from 'next/server';
+import { GET, PUT, DELETE } from '@/app/api/logbookEntries/[id]/route'; // Use alias
+import { PrismaClient, LogbookEntryType, LogbookEntryStatus } from '@prisma/client';
+import { NextRequest } from 'next/server';
+import { mockDeep, DeepMockProxy, mockReset } from 'jest-mock-extended';
 
-const prisma = new PrismaClient();
+// --- Correct Initialization Order ---
+// 1. Declare the mock variable
+const prismaMock = mockDeep<DeepMockProxy<PrismaClient>>();
 
-describe('Logbook Entries API', () => {
-  let logbookEntryId: number;
+// 2. Mock the module *using* the declared variable
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn(() => prismaMock),
+  LogbookEntryType: {
+    ATTENDEES: 'ATTENDEES',
+    AGENDA: 'AGENDA',
+    DOCUMENTATION: 'DOCUMENTATION',
+    MINUTES: 'MINUTES'
+  },
+  LogbookEntryStatus: {
+    ACTIVE: 'ACTIVE',
+    RESOLVED: 'RESOLVED'
+  }
+}));
+// ------------------------------------
 
-  beforeAll(async () => {
-    // Create a logbook entry for testing purposes
-    const logbookEntry = await prisma.logbookEntry.create({
-      data: {
-        date: new Date(),
-        description: 'Initial logbook entry for testing',
-        type: 'ATTENDEES',
-        workgroupId: 1,
-        status: 'ACTIVE',
-      },
-    });
-    logbookEntryId = logbookEntry.id;
-  });
-  
-  afterAll(async () => {
-    // Clean up the created logbook entry
-    await prisma.logbookEntry.delete({
-      where: { id: logbookEntryId }, 
-    });
-    await prisma.$disconnect();
-  });
+// Mock NextResponse if needed (or unmock)
+// jest.mock('next/server', () => ({ ... }));
 
-  it('should GET a logbook entry by ID', async () => {
-    const req = new Request('');
-    const params = { id: logbookEntryId.toString() };
-    const res = await GET(req, { params: params as any });
+describe('Logbook Entries API - /logbookEntries/[id]', () => {
+  let req: DeepMockProxy<NextRequest>;
 
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty('id', logbookEntryId);
+  beforeEach(() => {
+    mockReset(prismaMock); // Reset mocks before each test
+    req = mockDeep<NextRequest>();
   });
 
-  it('should return 404 if logbook entry is not found', async () => {
-    const req = new Request('');
-    const params = { id: '9999' }; // Non-existent ID
-    const res = await GET(req, { params: params as any });
-
-    expect(res.status).toBe(404);
-    const data = await res.json();
-    expect(data).toHaveProperty('error', 'Logbook entry not found');
+  const createMockLogbookEntry = (id: number, workgroupId: number) => ({
+      id,
+      workgroupId,
+      date: new Date(),
+      description: `Entry ${id}`,
+      type: LogbookEntryType.AGENDA,
+      status: LogbookEntryStatus.ACTIVE,
   });
 
-  it('should PUT (update) a logbook entry', async () => {
-    const updatedData = { description: 'Updated logbook entry' };
-    const req = new Request(JSON.stringify(updatedData));
-    const params = { id: logbookEntryId.toString() };
-    const res = await PUT(req, { params: params as any });
+  describe('GET', () => {
+    it('should return a logbook entry by ID', async () => {
+      const entryId = 1;
+      const workgroupId = 1;
+      const mockEntry = createMockLogbookEntry(entryId, workgroupId);
+      prismaMock.logbookEntry.findUnique.mockResolvedValue(mockEntry as any);
 
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty('description', 'Updated logbook entry');
-  });
+      const response = await GET(req, { params: { id: String(entryId) } });
+      const data = await response.json();
 
-  it('should DELETE a logbook entry', async () => {
-    // Create a new logbook entry to be deleted
-    const newLogbookEntry = await prisma.logbookEntry.create({
-      data: {
-        date: new Date(),
-        description: 'Logbook entry to be deleted',
-        type: 'ATTENDEES',
-        workgroupId: 1,
-        status: 'ACTIVE',
-
-      },
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ ...mockEntry, date: mockEntry.date.toISOString() });
+      expect(prismaMock.logbookEntry.findUnique).toHaveBeenCalledWith({ where: { id: entryId } });
+      expect(prismaMock.logbookEntry.findUnique).toHaveBeenCalledTimes(1);
     });
 
-    const req = new Request('');
-    const params = { id: newLogbookEntry.id.toString() };
-    const res = await DELETE(req, { params: params as any });
+    it('should return 404 if logbook entry is not found', async () => {
+      const entryId = 99;
+      prismaMock.logbookEntry.findUnique.mockResolvedValue(null);
 
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty('message', 'Logbook entry deleted');
+      const response = await GET(req, { params: { id: String(entryId) } });
+      const data = await response.json();
 
-    // Verify that the logbook entry is actually deleted
-    const getRes = await GET(req, { params: params as any });
-    expect(getRes.status).toBe(404);
+      expect(response.status).toBe(404);
+      expect(data).toEqual({ message: 'Logbook entry not found' });
+      expect(prismaMock.logbookEntry.findUnique).toHaveBeenCalledWith({ where: { id: entryId } });
+      expect(prismaMock.logbookEntry.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return 500 on database error', async () => {
+        const entryId = 1;
+        prismaMock.logbookEntry.findUnique.mockRejectedValue(new Error('DB Error'));
+        const response = await GET(req, { params: { id: String(entryId) } });
+        const data = await response.json();
+        expect(response.status).toBe(500);
+        expect(data).toEqual({ error: 'Failed to fetch logbook entry. Please check server logs.' });
+        expect(prismaMock.logbookEntry.findUnique).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('PUT', () => {
+    it('should update a logbook entry', async () => {
+      const entryId = 1;
+      const workgroupId = 1;
+      const existingEntry = createMockLogbookEntry(entryId, workgroupId);
+      const updateData = { description: 'Updated logbook entry', status: LogbookEntryStatus.RESOLVED };
+      const updatedEntry = { ...existingEntry, ...updateData };
+
+      prismaMock.logbookEntry.findUnique.mockResolvedValue(existingEntry as any);
+      prismaMock.logbookEntry.update.mockResolvedValue(updatedEntry as any);
+      (req.json as jest.Mock).mockResolvedValue(updateData);
+
+      const response = await PUT(req, { params: { id: String(entryId) } });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ ...updatedEntry, date: updatedEntry.date.toISOString() });
+      expect(prismaMock.logbookEntry.update).toHaveBeenCalledWith({ where: { id: entryId }, data: updateData });
+      expect(prismaMock.logbookEntry.update).toHaveBeenCalledTimes(1);
+    });
+
+     it('should return 404 if logbook entry to update is not found', async () => {
+        const entryId = 99;
+        const updateData = { description: 'Updated logbook entry' };
+        prismaMock.logbookEntry.update.mockRejectedValue({ code: 'P2025' });
+        (req.json as jest.Mock).mockResolvedValue(updateData);
+
+        const response = await PUT(req, { params: { id: String(entryId) } });
+        const data = await response.json();
+
+        expect(response.status).toBe(404);
+        expect(data).toEqual({ message: 'Logbook entry not found' });
+        expect(prismaMock.logbookEntry.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return 500 on database error', async () => {
+        const entryId = 1;
+        const updateData = { description: 'Updated logbook entry' };
+        prismaMock.logbookEntry.update.mockRejectedValue(new Error('DB Error'));
+        (req.json as jest.Mock).mockResolvedValue(updateData);
+
+        const response = await PUT(req, { params: { id: String(entryId) } });
+        const data = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(data).toEqual({ error: 'Failed to update logbook entry. Please check server logs.' });
+        expect(prismaMock.logbookEntry.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('DELETE', () => {
+    it('should delete a logbook entry and return 204', async () => {
+      const entryId = 1;
+      prismaMock.logbookEntry.delete.mockResolvedValue({} as any);
+
+      const response = await DELETE(req, { params: { id: String(entryId) } });
+
+      expect(response.status).toBe(204);
+      expect(prismaMock.logbookEntry.delete).toHaveBeenCalledWith({ where: { id: entryId } });
+      expect(prismaMock.logbookEntry.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return 404 if logbook entry to delete is not found', async () => {
+        const entryId = 99;
+        prismaMock.logbookEntry.delete.mockRejectedValue({ code: 'P2025' });
+
+        const response = await DELETE(req, { params: { id: String(entryId) } });
+        const data = await response.json();
+
+        expect(response.status).toBe(404);
+        expect(data).toEqual({ message: 'Logbook entry not found' });
+        expect(prismaMock.logbookEntry.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return 500 on database error', async () => {
+        const entryId = 1;
+        prismaMock.logbookEntry.delete.mockRejectedValue(new Error('DB Error'));
+
+        const response = await DELETE(req, { params: { id: String(entryId) } });
+        const data = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(data).toEqual({ error: 'Failed to delete logbook entry. Please check server logs.' });
+        expect(prismaMock.logbookEntry.delete).toHaveBeenCalledTimes(1);
+    });
   });
 });
