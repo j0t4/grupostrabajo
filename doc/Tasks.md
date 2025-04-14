@@ -5,6 +5,7 @@
 - [x] Create a document route to document api enpoints with swagger
 - [x] Update doc/Planing.md with setup and usage instructions
 - [x] Add unit tests for API route handlers
+- [x] Initiate Workgroups test execution (running, but coverage incomplete)
 - [x] Implement schema validation for input data (using Zod)
 
 ## Upcoming Tasks

@@ -3,6 +3,15 @@ import { NextResponse } from 'next/server';
 
 const prisma = new PrismaClient();
 
+// Helper function to serialize a meeting (converting dates to ISO strings)
+const serializeMeeting = (meeting: any) => {
+  if (!meeting) return null;
+  return {
+    ...meeting,
+    date: meeting.date.toISOString(),
+  };
+};
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -15,7 +24,7 @@ export async function GET(
     if (!meeting) {
       return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
     }
-    return NextResponse.json(meeting);
+    return NextResponse.json(serializeMeeting(meeting));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed to fetch meeting' }, { status: 500 });
@@ -33,7 +42,7 @@ export async function PUT(
       where: { id: Number(id) },
       data,
     });
-    return NextResponse.json(meeting);
+    return NextResponse.json(serializeMeeting(meeting));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed to update meeting' }, { status: 500 });
