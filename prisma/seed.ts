@@ -9,16 +9,22 @@ async function main() {
     create: {
       id: 1,
       name: 'root group',
-      parentId: 1, // Set parentId to its own id
+      parentId: null, // Set parentId to null for the root group
     },
   });
   console.log({ rootGroup });
+
+  // You can add more seeding logic here, for example:
+  // const member1 = await prisma.member.upsert(...);
+  // const meeting1 = await prisma.meeting.upsert(...);
 }
 
 main()
-  .then(() => prisma.$disconnect())
+  .then(async () => {
+    await prisma.$disconnect();
+  })
   .catch(async (e) => {
-    console.error(e);
+    console.error('Error during seeding:', e);
     await prisma.$disconnect();
     process.exit(1);
   });
