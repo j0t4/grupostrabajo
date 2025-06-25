@@ -48,7 +48,7 @@ export const prismaMock = mockDeep<PrismaClient>({
 });
 
 // Export a mocked version of PrismaClient
-export const PrismaClient = jest.fn(() => prismaMock);
+//export const PrismaClient = jest.fn(() => prismaMock);
 
 // Export enums that might be needed in tests
 export const MemberStatus = {

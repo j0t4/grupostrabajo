@@ -6,7 +6,9 @@ const prisma = new PrismaClient();
 
 // Validation schema for path parameter
 const ParamsSchema = z.object({
-  id: z.string().regex(/^\d+$/, "ID must be a positive integer").transform(Number),
+  // Validate that the string contains only digits, then coerce to number,
+  // and finally ensure it's a positive integer.
+  id: z.string().regex(/^\d+$/, "ID must be a string of digits").pipe(z.coerce.number().int().positive("ID must be a positive integer")),
 });
 
 // Validation schema for PUT request body
@@ -38,8 +40,10 @@ export async function GET(
 ) {
   try {
     // Validate path parameter
-    const validatedParams = ParamsSchema.safeParse(params);
+    const validatedParams = ParamsSchema.safeParse( await params);
     if (!validatedParams.success) {
+        // Log the validation errors for debugging
+        console.error("Params validation failed:", validatedParams.error.errors);
         return NextResponse.json({ error: 'Invalid ID parameter', details: validatedParams.error.errors }, { status: 400 });
     }
     const id = validatedParams.data.id;
@@ -68,7 +72,7 @@ export async function PUT(
 ) {
   try {
     // Validate path parameter
-    const validatedParams = ParamsSchema.safeParse(params);
+    const validatedParams = ParamsSchema.safeParse( await params);
     if (!validatedParams.success) {
         return NextResponse.json({ error: 'Invalid ID parameter', details: validatedParams.error.errors }, { status: 400 });
     }
@@ -127,7 +131,7 @@ export async function DELETE(
 ) {
   try {
     // Validate path parameter
-    const validatedParams = ParamsSchema.safeParse(params);
+    const validatedParams = ParamsSchema.safeParse(await params);
     if (!validatedParams.success) {
         return NextResponse.json({ error: 'Invalid ID parameter', details: validatedParams.error.errors }, { status: 400 });
     }
