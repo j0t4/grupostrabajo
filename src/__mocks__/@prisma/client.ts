@@ -1,8 +1,8 @@
 import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient as OriginalPrismaClient } from '@prisma/client';
 
 // Create serializable mock objects
-export const prismaMock = mockDeep<PrismaClient>({
+export const prismaMock = mockDeep<OriginalPrismaClient>({
   workgroup: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
@@ -48,7 +48,7 @@ export const prismaMock = mockDeep<PrismaClient>({
 });
 
 // Export a mocked version of PrismaClient
-//export const PrismaClient = jest.fn(() => prismaMock);
+export const PrismaClient = jest.fn(() => prismaMock);
 
 // Export enums that might be needed in tests
 export const MemberStatus = {

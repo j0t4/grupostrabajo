@@ -1,13 +1,12 @@
 import { GET } from '@/app/api/attendances/route';
 import { prismaMock } from '@/../src/__mocks__/@prisma/client';
-import { NextRequest } from 'next/server';
 import { Attendance } from '@prisma/client';
 
 // Mock data for attendances
 const mockAttendances: Attendance[] = [
-  { memberId: 1, meetingId: 101, present: true, justification: null },
-  { memberId: 2, meetingId: 101, present: false, justification: 'Sick leave' },
-  { memberId: 1, meetingId: 102, present: true, justification: null },
+  { memberId: 1, meetingId: 101 },
+  { memberId: 2, meetingId: 101 },
+  { memberId: 1, meetingId: 102 },
 ];
 
 describe('GET /api/attendances', () => {
@@ -16,7 +15,6 @@ describe('GET /api/attendances', () => {
 
     // Note: NextRequest is not strictly needed here as the route doesn't use it,
     // but keeping it for consistency with other tests.
-    const req = new NextRequest('http://localhost/api/attendances');
     const response = await GET(); // Call GET without request object as it's not used
     const body = await response.json();
 
@@ -32,13 +30,18 @@ describe('GET /api/attendances', () => {
     const dbError = new Error('Database error');
     prismaMock.attendance.findMany.mockRejectedValue(dbError);
 
-    const req = new NextRequest('http://localhost/api/attendances');
+    // Suppress console.error for this test
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const response = await GET(); // Call GET without request object
     const body = await response.json();
 
     expect(response.status).toBe(500);
     // Adjust expectation based on route implementation
     expect(body).toEqual({ error: 'Failed to fetch attendances' });
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 
   // Removed test for invalid query parameters as the route doesn't handle them.

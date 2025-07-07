@@ -80,11 +80,17 @@ describe('Meetings API - /api/meetings/[id]', () => {
        it('should return 500 on database error', async () => {
            prismaMock.meeting.findUnique.mockRejectedValue(new Error('Database error'));
 
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
            const response = await GET(createMockRequest('GET', null, { id: String(meetingId) }), params);
            const data = await response.json();
 
            expect(response.status).toBe(500);
            expect(data.error).toContain('Failed to fetch meeting');
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
   });
 
@@ -113,25 +119,33 @@ describe('Meetings API - /api/meetings/[id]', () => {
           });
       });
 
-      it('should return 500 if update fails (e.g., meeting not found)', async () => {
-           // Prisma update throws P2025 if record not found. The current route returns 500.
-           const prismaError = new Error('Record to update not found.');
-           // (prismaError as any).code = 'P2025';
-           prismaMock.meeting.update.mockRejectedValue(prismaError);
+       it('should return 500 if update fails (e.g., meeting not found)', async () => {
+            // Prisma update throws P2025 if record not found. The current route returns 500.
+            const prismaError = new Error('Record to update not found.');
+            // (prismaError as any).code = 'P2025';
+            prismaMock.meeting.update.mockRejectedValue(prismaError);
 
-           const req = createMockRequest('PUT', updateData, { id: String(nonExistentIdParams.params.id) });
-           const response = await PUT(req, nonExistentIdParams);
-           const data = await response.json();
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-           expect(response.status).toBe(500);
-           expect(data).toEqual({ error: 'Failed to update meeting' });
-           // If 404 handling were added: expect(response.status).toBe(404);
-      });
+            const req = createMockRequest('PUT', updateData, { id: String(nonExistentIdParams.params.id) });
+            const response = await PUT(req, nonExistentIdParams);
+            const data = await response.json();
 
+            expect(response.status).toBe(500);
+            expect(data).toEqual({ error: 'Failed to update meeting' });
+            // If 404 handling were added: expect(response.status).toBe(404);
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+       });
        // Add tests for invalid ID format (400) and invalid update data (400) if validation is added
 
        it('should return 500 on other database error', async () => {
            prismaMock.meeting.update.mockRejectedValue(new Error('Some other database error'));
+
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
            const req = createMockRequest('PUT', updateData, { id: String(meetingId) });
            const response = await PUT(req, params);
@@ -139,6 +153,9 @@ describe('Meetings API - /api/meetings/[id]', () => {
 
            expect(response.status).toBe(500);
            expect(data.error).toContain('Failed to update meeting');
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
   });
 
@@ -160,11 +177,14 @@ describe('Meetings API - /api/meetings/[id]', () => {
            expect(prismaMock.meeting.delete).toHaveBeenCalledWith({ where: { id: meetingId } });
       });
 
-      it('should return 500 if meeting to delete not found', async () => {
+       it('should return 500 if meeting to delete not found', async () => {
            // Prisma delete throws P2025 if record not found. Current route returns 500.
            const prismaError = new Error('Record to delete does not exist.');
            // (prismaError as any).code = 'P2025';
            prismaMock.meeting.delete.mockRejectedValue(prismaError);
+
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
            const req = createMockRequest('DELETE', null, { id: String(nonExistentIdParams.params.id) });
            const response = await DELETE(req, nonExistentIdParams);
@@ -173,12 +193,17 @@ describe('Meetings API - /api/meetings/[id]', () => {
            expect(response.status).toBe(500);
            expect(data).toEqual({ error: 'Failed to delete meeting' });
            // If 404 handling were added: expect(response.status).toBe(404);
-       });
 
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
+       });
         // Add tests for invalid ID format (400) and conflicts (409) like foreign key constraints if handled
 
        it('should return 500 on other database error during delete', async () => {
            prismaMock.meeting.delete.mockRejectedValue(new Error('Database error during delete'));
+
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
            const req = createMockRequest('DELETE', null, { id: String(meetingId) });
            const response = await DELETE(req, params);
@@ -186,6 +211,9 @@ describe('Meetings API - /api/meetings/[id]', () => {
 
            expect(response.status).toBe(500);
            expect(data.error).toContain('Failed to delete meeting');
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
   });
 });

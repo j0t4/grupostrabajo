@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import { NextResponse } from 'next/server';
+import { PrismaClient } from "@prisma/client";
+import { NextResponse } from "next/server";
 
 const prisma = new PrismaClient();
 
@@ -27,16 +27,25 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params;
+    const id = parseInt(params.id);
     const data = await request.json();
-    const member = await prisma.member.update({
-      where: { id: Number(id) },
+    
+    // Convert deactivationDate to Date object if it exists
+    if (data.status === "INACTIVE" && data.deactivationDate) {
+      data.deactivationDate = new Date(data.deactivationDate);
+    } else if (data.status === "ACTIVE") {
+      data.deactivationDate = null;
+      data.deactivationDescription = null;
+    }
+    
+    const updatedMember = await prisma.member.update({
+      where: { id },
       data,
     });
-    return NextResponse.json(member);
+    return NextResponse.json(updatedMember);
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: 'Failed to update member' }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update member" }, { status: 500 });
   }
 }
 

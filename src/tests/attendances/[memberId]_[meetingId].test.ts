@@ -1,7 +1,7 @@
 import { GET, DELETE } from '@/app/api/attendances/[memberId]_[meetingId]/route';
 import { prismaMock } from '@/../src/__mocks__/@prisma/client';
-import { NextRequest, NextResponse } from 'next/server';
-import { Attendance } from '@prisma/client';
+import { NextRequest } from 'next/server';
+import { Attendance, MemberStatus, MeetingType } from '@prisma/client';
 
 // Mock date for consistency in testing
 const testDate = new Date();
@@ -11,8 +11,6 @@ const testDateISO = testDate.toISOString();
 const mockAttendance: any = {
   memberId: 1,
   meetingId: 101,
-  present: true,
-  justification: null,
   member: { id: 1, name: 'Test Member' },
   meeting: { id: 101, date: testDateISO }, // Use ISO string here
 };
@@ -21,10 +19,8 @@ const mockAttendance: any = {
 const mockAttendanceWithDateObject: Attendance & { member?: any, meeting?: any } = {
     memberId: 1,
     meetingId: 101,
-    present: true,
-    justification: null,
-    member: { id: 1, name: 'Test Member' },
-    meeting: { id: 101, date: testDate }, // Use Date object here
+    member: { id: 1, name: 'Test Member', surname: 'Test', email: 'test@example.com', dni: '12345678A', position: null, organization: null, phone1: null, phone1Description: null, phone2: null, phone2Description: null, phone3: null, phone3Description: null, status: MemberStatus.ACTIVE, deactivationDate: null, deactivationDescription: null },
+    meeting: { id: 101, workgroupId: 1, title: 'Test Meeting', description: null, date: testDate, type: MeetingType.PRESENTIAL, observations: null, agenda: null, minutes: null },
 };
 
 describe('GET /api/attendances/{memberId}_{meetingId}', () => {
@@ -43,7 +39,36 @@ describe('GET /api/attendances/{memberId}_{meetingId}', () => {
 
     expect(response.status).toBe(200);
     // Compare against the mock with the ISO date string, as JSON serialization converts dates
-    expect(body).toEqual(mockAttendance);
+    expect(body).toEqual({
+        ...mockAttendance,
+        member: {
+            ...mockAttendance.member,
+            surname: 'Test',
+            email: 'test@example.com',
+            dni: '12345678A',
+            position: null,
+            organization: null,
+            phone1: null,
+            phone1Description: null,
+            phone2: null,
+            phone2Description: null,
+            phone3: null,
+            phone3Description: null,
+            status: 'ACTIVE',
+            deactivationDate: null,
+            deactivationDescription: null
+        },
+        meeting: {
+            ...mockAttendance.meeting,
+            workgroupId: 1,
+            title: 'Test Meeting',
+            description: null,
+            type: 'PRESENTIAL',
+            observations: null,
+            agenda: null,
+            minutes: null
+        }
+    });
     expect(prismaMock.attendance.findUnique).toHaveBeenCalledWith({
       where: { memberId_meetingId: { memberId: 1, meetingId: 101 } },
       include: { member: true, meeting: true }
@@ -84,6 +109,9 @@ describe('GET /api/attendances/{memberId}_{meetingId}', () => {
     const dbError = new Error('Database error');
     prismaMock.attendance.findUnique.mockRejectedValue(dbError);
 
+    // Suppress console.error for this test
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const req = new NextRequest('http://localhost/api/attendances/1_101');
     const params = { params: { memberId_meetingId: '1_101' } };
     const response = await GET(req, params);
@@ -91,6 +119,9 @@ describe('GET /api/attendances/{memberId}_{meetingId}', () => {
 
     expect(response.status).toBe(500);
     expect(body).toEqual({ error: 'Failed to fetch attendance. Please check server logs.' });
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 });
 
@@ -102,7 +133,7 @@ describe('DELETE /api/attendances/{memberId}_{meetingId}', () => {
         // Default setup for successful deletion transaction simulation
         prismaMock.attendance.findUnique.mockResolvedValue(mockAttendanceWithDateObject);
         prismaMock.attendance.delete.mockResolvedValue(mockAttendanceWithDateObject);
-        prismaMock.$transaction.mockImplementation(async (callback) => {
+        prismaMock.$transaction.mockImplementation(async (callback: any) => {
             // In a real scenario, this would pass the actual transaction client (tx)
             // For mocking, we pass the global mock to allow the callback to use mocked methods
             try {
@@ -176,6 +207,9 @@ describe('DELETE /api/attendances/{memberId}_{meetingId}', () => {
     const dbError = new Error('Database error');
     prismaMock.$transaction.mockRejectedValue(dbError);
 
+    // Suppress console.error for this test
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const req = new NextRequest('http://localhost/api/attendances/1_101', { method: 'DELETE' });
     const params = { params: { memberId_meetingId: '1_101' } };
     const response = await DELETE(req, params);
@@ -184,6 +218,9 @@ describe('DELETE /api/attendances/{memberId}_{meetingId}', () => {
     expect(response.status).toBe(500);
     expect(body).toEqual({ error: 'Failed to delete attendance. Please check server logs.' });
      expect(prismaMock.$transaction).toHaveBeenCalled();
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 
   it('should return 409 if delete fails due to foreign key constraint (P2003)', async () => {
@@ -191,6 +228,9 @@ describe('DELETE /api/attendances/{memberId}_{meetingId}', () => {
     const fkError = new Error('Foreign key constraint failed');
     (fkError as any).code = 'P2003';
     prismaMock.$transaction.mockRejectedValue(fkError);
+
+    // Suppress console.error for this test
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const req = new NextRequest('http://localhost/api/attendances/1_101', { method: 'DELETE' });
     const params = { params: { memberId_meetingId: '1_101' } };
@@ -200,5 +240,8 @@ describe('DELETE /api/attendances/{memberId}_{meetingId}', () => {
     expect(response.status).toBe(409);
     expect(body).toEqual({ error: 'Cannot delete attendance due to existing references.' });
     expect(prismaMock.$transaction).toHaveBeenCalled();
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 });

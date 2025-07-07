@@ -1,7 +1,7 @@
 import { GET, POST } from '@/app/api/meetings/route';
 import { prismaMock } from '@/../src/__mocks__/@prisma/client';
 import { NextRequest } from 'next/server';
-import { Meeting, Workgroup, MeetingType } from '@prisma/client';
+import { Meeting, Workgroup, MeetingType, WorkgroupStatus } from '@prisma/client';
 
 // Helper to serialize dates in meetings
 const serializeMeetingDates = (meeting: any) => {
@@ -12,7 +12,6 @@ const serializeMeetingDates = (meeting: any) => {
     // Ensure related objects with dates are also serialized if included and needed for comparison
     workgroup: meeting.workgroup ? {
         ...meeting.workgroup,
-        creationDate: meeting.workgroup.creationDate.toISOString(),
         deactivationDate: meeting.workgroup.deactivationDate ? meeting.workgroup.deactivationDate.toISOString() : null,
     } : undefined,
   };
@@ -25,8 +24,7 @@ describe('Meetings API - /api/meetings', () => {
       id: 1,
       name: 'Related Workgroup',
       description: 'Workgroup for meetings',
-      creationDate: new Date('2023-01-01T10:00:00.000Z'),
-      status: 'ACTIVE',
+      status: WorkgroupStatus.ACTIVE,
       deactivationDate: null,
       parentId: null
   };
@@ -71,12 +69,19 @@ describe('Meetings API - /api/meetings', () => {
 
     it('should return 500 on database error', async () => {
       prismaMock.meeting.findMany.mockRejectedValue(new Error('Database error'));
+
+      // Suppress console.error for this test
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
       const req = new NextRequest('http://localhost/api/meetings');
       const response = await GET(req);
       const data = await response.json();
 
       expect(response.status).toBe(500);
       expect(data).toEqual({ error: 'Failed to fetch meetings. Please check server logs.' });
+
+      // Restore console.error
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -173,6 +178,9 @@ describe('Meetings API - /api/meetings', () => {
       prismaMock.workgroup.findUnique.mockResolvedValue(mockWorkgroup);
       prismaMock.meeting.create.mockRejectedValue(new Error('Creation failed'));
 
+      // Suppress console.error for this test
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
       const req = new NextRequest('http://localhost/api/meetings', {
         method: 'POST',
         body: JSON.stringify(validMeetingData),
@@ -184,12 +192,18 @@ describe('Meetings API - /api/meetings', () => {
 
       expect(response.status).toBe(500);
       expect(data).toEqual({ error: 'Failed to create meeting. Please check server logs.' });
+
+      // Restore console.error
+      consoleErrorSpy.mockRestore();
     });
 
      it('should return 409 on unique constraint violation', async () => {
          prismaMock.workgroup.findUnique.mockResolvedValue(mockWorkgroup);
          const prismaError = { code: 'P2002' };
          prismaMock.meeting.create.mockRejectedValue(prismaError);
+
+         // Suppress console.error for this test
+         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
          const req = new NextRequest('http://localhost/api/meetings', {
              method: 'POST',
@@ -202,6 +216,9 @@ describe('Meetings API - /api/meetings', () => {
 
          expect(response.status).toBe(409);
          expect(data).toEqual({ error: 'Meeting creation failed due to constraint violation.' });
+
+         // Restore console.error
+         consoleErrorSpy.mockRestore();
      });
   });
 });

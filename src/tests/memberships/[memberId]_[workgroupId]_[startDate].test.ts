@@ -1,7 +1,7 @@
 import { GET, PUT, DELETE } from '@/app/api/memberships/[memberId]_[workgroupId]_[startDate]/route';
 import { prismaMock } from '@/../src/__mocks__/@prisma/client';
-import { NextRequest, NextResponse } from 'next/server';
-import { Membership, Member, Workgroup, Prisma } from '@prisma/client'; // Import related types and Prisma
+import { NextRequest } from 'next/server';
+import { Membership, Member, Workgroup, MemberStatus, WorkgroupStatus, MembershipRole } from '@prisma/client'; // Import related types and Prisma
 import { jest } from '@jest/globals';
 
 // Helper function (mirroring the one in the route for consistency)
@@ -21,15 +21,17 @@ function parseMembershipKey(key: string): { memberId: number; workgroupId: numbe
 const testDate = new Date('2023-01-01T00:00:00.000Z');
 const testDateISO = testDate.toISOString();
 
-const mockMember: Member = { id: 1, name: 'Test Member', email: 'test@example.com', startDate: new Date(), endDate: null };
-const mockWorkgroup: Workgroup = { id: 10, name: 'Test WG', description: null, creationDate: new Date(), dissolutionDate: null, coordinatorId: null };
+const mockMember: Member = { id: 1, name: 'Test Member', surname: 'Test', email: 'test@example.com', dni: '12345678A', position: null, organization: null, phone1: null, phone1Description: null, phone2: null, phone2Description: null, phone3: null, phone3Description: null, status: MemberStatus.ACTIVE, deactivationDate: null, deactivationDescription: null };
+const mockWorkgroup: Workgroup = { id: 10, name: 'Test WG', description: null, status: WorkgroupStatus.ACTIVE, deactivationDate: null, parentId: null };
 
 // Mock for Prisma responses (includes relations, uses Date objects)
 const mockMembershipWithRelations: Membership & { member: Member, workgroup: Workgroup } = {
   memberId: 1,
   workgroupId: 10,
+  role: MembershipRole.ASSISTANT,
   startDate: testDate,
   endDate: null,
+  endDateDescription: null,
   member: mockMember,
   workgroup: mockWorkgroup,
 };
@@ -38,17 +40,17 @@ const mockMembershipWithRelations: Membership & { member: Member, workgroup: Wor
 const mockMembershipISO = {
     memberId: mockMembershipWithRelations.memberId,
     workgroupId: mockMembershipWithRelations.workgroupId,
+    role: mockMembershipWithRelations.role,
     startDate: mockMembershipWithRelations.startDate.toISOString(),
     endDate: mockMembershipWithRelations.endDate,
+    endDateDescription: mockMembershipWithRelations.endDateDescription,
     member: {
         ...mockMember,
-        startDate: mockMember.startDate.toISOString(),
-        endDate: mockMember.endDate ? mockMember.endDate.toISOString() : null
+        deactivationDate: mockMember.deactivationDate ? mockMember.deactivationDate.toISOString() : null
     },
     workgroup: {
         ...mockWorkgroup,
-        creationDate: mockWorkgroup.creationDate.toISOString(),
-        dissolutionDate: mockWorkgroup.dissolutionDate ? mockWorkgroup.dissolutionDate.toISOString() : null
+        deactivationDate: mockWorkgroup.deactivationDate ? mockWorkgroup.deactivationDate.toISOString() : null
     }
 };
 
@@ -129,6 +131,10 @@ describe('API Route: /api/memberships/[key]', () => {
         it('should return 500 if there is a database error during findUnique', async () => {
             const dbError = new Error('Database error');
             prismaMock.membership.findUnique.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
             const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`);
             const params = { params: { memberId_workgroupId_startDate: compositeKey } };
 
@@ -137,43 +143,46 @@ describe('API Route: /api/memberships/[key]', () => {
 
             expect(response.status).toBe(500);
             expect(body).toEqual({ error: 'Failed to fetch membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
         });
     });
 
     describe('PUT /api/memberships/{key}', () => {
-        const validUpdateData = { endDate: new Date('2024-12-31T00:00:00.000Z') };
-        const validUpdateDataISO = { endDate: validUpdateData.endDate.toISOString() };
+        const validUpdateData = { endDate: new Date('2024-12-31T00:00:00.000Z'), endDateDescription: 'Finished' };
+        const validUpdateDataISO = { endDate: validUpdateData.endDate.toISOString(), endDateDescription: 'Finished' };
 
          beforeEach(() => {
             jest.resetAllMocks();
             // Default mock for successful update
-            const updatedMembership = { ...mockMembershipWithRelations, endDate: validUpdateData.endDate };
+            const updatedMembership = { ...mockMembershipWithRelations, ...validUpdateData };
             prismaMock.membership.update.mockResolvedValue(updatedMembership);
          });
 
         it('should update the endDate successfully', async () => {
             const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
                 method: 'PUT',
-                body: JSON.stringify(validUpdateDataISO),
+                body: JSON.stringify(validUpdateData),
                 headers: { 'Content-Type': 'application/json' }
             });
             const params = { params: { memberId_workgroupId_startDate: compositeKey } };
 
             const response = await PUT(req, params);
             const body = await response.json();
-            const expectedBody = { ...mockMembershipISO, endDate: validUpdateDataISO.endDate }; // Calculate expected JSON response
+            const expectedBody = { ...mockMembershipISO, endDate: validUpdateData.endDate.toISOString(), endDateDescription: validUpdateData.endDateDescription }; // Calculate expected JSON response
 
             expect(response.status).toBe(200);
             expect(body).toEqual(expectedBody);
             expect(prismaMock.membership.update).toHaveBeenCalledWith({
                 where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
-                data: { endDate: validUpdateData.endDate }, // Expect Date object sent to Prisma
+                data: { endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }, // Expect Date object sent to Prisma
             });
         });
 
          it('should set endDate to null successfully', async () => {
-             const updateDataNull = { endDate: null };
-             const updatedMembershipNull = { ...mockMembershipWithRelations, endDate: null };
+             const updateDataNull = { endDate: null, endDateDescription: null };
+             const updatedMembershipNull = { ...mockMembershipWithRelations, ...updateDataNull };
              prismaMock.membership.update.mockResolvedValue(updatedMembershipNull);
 
             const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
@@ -185,13 +194,13 @@ describe('API Route: /api/memberships/[key]', () => {
 
             const response = await PUT(req, params);
             const body = await response.json();
-            const expectedBody = { ...mockMembershipISO, endDate: null };
+            const expectedBody = { ...mockMembershipISO, ...updateDataNull };
 
             expect(response.status).toBe(200);
             expect(body).toEqual(expectedBody);
             expect(prismaMock.membership.update).toHaveBeenCalledWith({
                 where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
-                data: { endDate: null },
+                data: { endDate: null, endDateDescription: null },
             });
         });
 
@@ -200,9 +209,12 @@ describe('API Route: /api/memberships/[key]', () => {
             (prismaNotFoundError as any).code = 'P2025';
             prismaMock.membership.update.mockRejectedValue(prismaNotFoundError);
 
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
             const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, {
                 method: 'PUT',
-                body: JSON.stringify(validUpdateDataISO),
+                body: JSON.stringify(validUpdateData),
                 headers: { 'Content-Type': 'application/json' }
             });
             const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
@@ -213,6 +225,9 @@ describe('API Route: /api/memberships/[key]', () => {
             expect(response.status).toBe(404);
             expect(body).toEqual({ message: 'Membership not found' });
             expect(prismaMock.membership.update).toHaveBeenCalled(); // Still tried to update
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
         });
 
         it('should return 400 if the key format is invalid', async () => {
@@ -275,9 +290,12 @@ describe('API Route: /api/memberships/[key]', () => {
             if ('code' in dbError) delete (dbError as any).code;
             prismaMock.membership.update.mockRejectedValue(dbError);
 
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
             const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
                  method: 'PUT',
-                 body: JSON.stringify(validUpdateDataISO),
+                 body: JSON.stringify(validUpdateData),
                  headers: { 'Content-Type': 'application/json' }
              });
             const params = { params: { memberId_workgroupId_startDate: compositeKey } };
@@ -287,6 +305,9 @@ describe('API Route: /api/memberships/[key]', () => {
 
             expect(response.status).toBe(500);
             expect(body).toEqual({ error: 'Failed to update membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
         });
     });
 
@@ -314,6 +335,9 @@ describe('API Route: /api/memberships/[key]', () => {
             (prismaNotFoundError as any).code = 'P2025';
             prismaMock.membership.delete.mockRejectedValue(prismaNotFoundError);
 
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
             const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, { method: 'DELETE' });
              const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
              const parsedKey = parseMembershipKey(notFoundCompositeKey)!;
@@ -326,6 +350,9 @@ describe('API Route: /api/memberships/[key]', () => {
             expect(prismaMock.membership.delete).toHaveBeenCalledWith({
                  where: { memberId_workgroupId_startDate: { memberId: parsedKey.memberId, workgroupId: parsedKey.workgroupId, startDate: parsedKey.startDate } },
             });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
         });
 
          it('should return 400 if the key format is invalid', async () => {
@@ -345,6 +372,9 @@ describe('API Route: /api/memberships/[key]', () => {
             (fkError as any).code = 'P2003';
             prismaMock.membership.delete.mockRejectedValue(fkError);
 
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
             const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
             const params = { params: { memberId_workgroupId_startDate: compositeKey } };
 
@@ -354,6 +384,9 @@ describe('API Route: /api/memberships/[key]', () => {
             expect(response.status).toBe(409); // Conflict
             expect(body).toEqual({ error: 'Cannot delete membership due to existing references.' });
             expect(prismaMock.membership.delete).toHaveBeenCalled();
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
         });
 
         it('should return 500 if there is a generic database error during delete', async () => {
@@ -361,6 +394,9 @@ describe('API Route: /api/memberships/[key]', () => {
              // Ensure it's not a P2025 or P2003 error
             if ('code' in dbError) delete (dbError as any).code;
             prismaMock.membership.delete.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
             const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
             const params = { params: { memberId_workgroupId_startDate: compositeKey } };
@@ -370,6 +406,686 @@ describe('API Route: /api/memberships/[key]', () => {
 
             expect(response.status).toBe(500);
             expect(body).toEqual({ error: 'Failed to delete membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+    });
+});        it('should update the endDate successfully', async () => {
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(validUpdateData),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, endDate: validUpdateData.endDate.toISOString(), endDateDescription: validUpdateData.endDateDescription }; // Calculate expected JSON response
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }, // Expect Date object sent to Prisma
+            });
+        });
+
+         it('should set endDate to null successfully', async () => {
+             const updateDataNull = { endDate: null, endDateDescription: null };
+             const updatedMembershipNull = { ...mockMembershipWithRelations, ...updateDataNull };
+             prismaMock.membership.update.mockResolvedValue(updatedMembershipNull);
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(updateDataNull),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, ...updateDataNull };
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: null, endDateDescription: null },
+            });
+        });
+
+        it('should return 404 if the membership to update is not found (P2025)', async () => {
+            const prismaNotFoundError = new Error('Record to update not found.');
+            (prismaNotFoundError as any).code = 'P2025';
+            prismaMock.membership.update.mockRejectedValue(prismaNotFoundError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(validUpdateData),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(404);
+            expect(body).toEqual({ message: 'Membership not found' });
+            expect(prismaMock.membership.update).toHaveBeenCalled(); // Still tried to update
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+        it('should return 400 if the key format is invalid', async () => {
+             const req = new NextRequest(`http://localhost/api/memberships/${invalidCompositeKeyFormat}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(validUpdateDataISO),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: invalidCompositeKeyFormat } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid path parameter format');
+            expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+        it('should return 400 for invalid update data format (Zod fail)', async () => {
+            const invalidData = { endDate: 'not-a-date' }; // Invalid date string
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(invalidData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid input data');
+             expect(body).toHaveProperty('details');
+             expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+         it('should return 400 for unexpected update data field (Zod strict fail)', async () => {
+            const invalidData = { endDate: null, unexpectedField: 'test' };
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(invalidData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid input data');
+             expect(body).toHaveProperty('details'); // Zod adds details about unrecognized keys
+             expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+         it('should return 500 if there is a database error during update', async () => {
+            const dbError = new Error('Database error');
+            // Ensure it's not a P2025 error, which should be 404
+            if ('code' in dbError) delete (dbError as any).code;
+            prismaMock.membership.update.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(validUpdateData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(500);
+            expect(body).toEqual({ error: 'Failed to update membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+    });
+
+    describe('DELETE /api/memberships/{key}', () => {
+         beforeEach(() => {
+            jest.resetAllMocks();
+            prismaMock.membership.delete.mockResolvedValue(mockMembershipWithRelations); // delete returns the deleted object
+         });
+
+        it('should delete the specific membership and return 204', async () => {
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await DELETE(req, params);
+
+            expect(response.status).toBe(204);
+            expect(await response.text()).toBe(''); // No body for 204
+            expect(prismaMock.membership.delete).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+            });
+        });
+
+        it('should return 404 if the membership to delete is not found (P2025)', async () => {
+            const prismaNotFoundError = new Error('Record to delete does not exist.');
+            (prismaNotFoundError as any).code = 'P2025';
+            prismaMock.membership.delete.mockRejectedValue(prismaNotFoundError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, { method: 'DELETE' });
+             const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
+             const parsedKey = parseMembershipKey(notFoundCompositeKey)!;
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(404);
+            expect(body).toEqual({ message: 'Membership not found' });
+            expect(prismaMock.membership.delete).toHaveBeenCalledWith({
+                 where: { memberId_workgroupId_startDate: { memberId: parsedKey.memberId, workgroupId: parsedKey.workgroupId, startDate: parsedKey.startDate } },
+            });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+         it('should return 400 if the key format is invalid', async () => {
+             const req = new NextRequest(`http://localhost/api/memberships/${invalidCompositeKeyFormat}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: invalidCompositeKeyFormat } };
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid path parameter format');
+            expect(prismaMock.membership.delete).not.toHaveBeenCalled();
+        });
+
+        it('should return 409 if delete fails due to foreign key constraint (P2003)', async () => {
+            const fkError = new Error('Foreign key constraint violation');
+            (fkError as any).code = 'P2003';
+            prismaMock.membership.delete.mockRejectedValue(fkError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(409); // Conflict
+            expect(body).toEqual({ error: 'Cannot delete membership due to existing references.' });
+            expect(prismaMock.membership.delete).toHaveBeenCalled();
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+        it('should return 500 if there is a generic database error during delete', async () => {
+            const dbError = new Error('Database error');
+             // Ensure it's not a P2025 or P2003 error
+            if ('code' in dbError) delete (dbError as any).code;
+            prismaMock.membership.delete.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(500);
+            expect(body).toEqual({ error: 'Failed to delete membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+    });
+});        it('should update the endDate successfully', async () => {
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(validUpdateData),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, endDate: validUpdateData.endDate.toISOString(), endDateDescription: validUpdateData.endDateDescription }; // Calculate expected JSON response
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }, // Expect Date object sent to Prisma
+            });
+        });
+
+         it('should set endDate to null successfully', async () => {
+             const updateDataNull = { endDate: null, endDateDescription: null };
+             const updatedMembershipNull = { ...mockMembershipWithRelations, ...updateDataNull };
+             prismaMock.membership.update.mockResolvedValue(updatedMembershipNull);
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(updateDataNull),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, ...updateDataNull };
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: null, endDateDescription: null },
+            });
+        });
+
+        it('should return 404 if the membership to update is not found (P2025)', async () => {
+            const prismaNotFoundError = new Error('Record to update not found.');
+            (prismaNotFoundError as any).code = 'P2025';
+            prismaMock.membership.update.mockRejectedValue(prismaNotFoundError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(validUpdateData),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(404);
+            expect(body).toEqual({ message: 'Membership not found' });
+            expect(prismaMock.membership.update).toHaveBeenCalled(); // Still tried to update
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+        it('should return 400 if the key format is invalid', async () => {
+             const req = new NextRequest(`http://localhost/api/memberships/${invalidCompositeKeyFormat}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(validUpdateDataISO),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: invalidCompositeKeyFormat } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid path parameter format');
+            expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+        it('should return 400 for invalid update data format (Zod fail)', async () => {
+            const invalidData = { endDate: 'not-a-date' }; // Invalid date string
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(invalidData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid input data');
+             expect(body).toHaveProperty('details');
+             expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+         it('should return 400 for unexpected update data field (Zod strict fail)', async () => {
+            const invalidData = { endDate: null, unexpectedField: 'test' };
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(invalidData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid input data');
+             expect(body).toHaveProperty('details'); // Zod adds details about unrecognized keys
+             expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+         it('should return 500 if there is a database error during update', async () => {
+            const dbError = new Error('Database error');
+            // Ensure it's not a P2025 error, which should be 404
+            if ('code' in dbError) delete (dbError as any).code;
+            prismaMock.membership.update.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(validUpdateData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(500);
+            expect(body).toEqual({ error: 'Failed to update membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+    });
+
+         it('should update the endDate successfully', async () => {
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify({ endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, endDate: validUpdateData.endDate.toISOString(), endDateDescription: validUpdateData.endDateDescription }; // Calculate expected JSON response
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }, // Expect Date object sent to Prisma
+            });
+        });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, endDate: validUpdateData.endDate.toISOString(), endDateDescription: validUpdateData.endDateDescription }; // Calculate expected JSON response
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }, // Expect Date object sent to Prisma
+            });
+        });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, endDate: validUpdateData.endDate.toISOString(), endDateDescription: validUpdateData.endDateDescription }; // Calculate expected JSON response
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }, // Expect Date object sent to Prisma
+            });
+        });
+         it('should set endDate to null successfully', async () => {
+             const updateDataNull = { endDate: null, endDateDescription: null };
+             const updatedMembershipNull = { ...mockMembershipWithRelations, ...updateDataNull };
+             prismaMock.membership.update.mockResolvedValue(updatedMembershipNull);
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify(updateDataNull),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+            const expectedBody = { ...mockMembershipISO, ...updateDataNull };
+
+            expect(response.status).toBe(200);
+            expect(body).toEqual(expectedBody);
+            expect(prismaMock.membership.update).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+                data: { endDate: null, endDateDescription: null },
+            });
+        });
+        it('should return 404 if the membership to update is not found (P2025)', async () => {
+            const prismaNotFoundError = new Error('Record to update not found.');
+            (prismaNotFoundError as any).code = 'P2025';
+            prismaMock.membership.update.mockRejectedValue(prismaNotFoundError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, {
+                method: 'PUT',
+                body: JSON.stringify({ endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(404);
+            expect(body).toEqual({ message: 'Membership not found' });
+            expect(prismaMock.membership.update).toHaveBeenCalled(); // Still tried to update
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+        it('should return 400 if the key format is invalid', async () => {
+             const req = new NextRequest(`http://localhost/api/memberships/${invalidCompositeKeyFormat}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(validUpdateDataISO),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: invalidCompositeKeyFormat } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid path parameter format');
+            expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+        it('should return 400 for invalid update data format (Zod fail)', async () => {
+            const invalidData = { endDate: 'not-a-date' }; // Invalid date string
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(invalidData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid input data');
+             expect(body).toHaveProperty('details');
+             expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+         it('should return 400 for unexpected update data field (Zod strict fail)', async () => {
+            const invalidData = { endDate: null, unexpectedField: 'test' };
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify(invalidData),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid input data');
+             expect(body).toHaveProperty('details'); // Zod adds details about unrecognized keys
+             expect(prismaMock.membership.update).not.toHaveBeenCalled();
+        });
+
+         it('should return 500 if there is a database error during update', async () => {
+            const dbError = new Error('Database error');
+            // Ensure it's not a P2025 error, which should be 404
+            if ('code' in dbError) delete (dbError as any).code;
+            prismaMock.membership.update.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, {
+                 method: 'PUT',
+                 body: JSON.stringify({ endDate: validUpdateData.endDate, endDateDescription: validUpdateData.endDateDescription }),
+                 headers: { 'Content-Type': 'application/json' }
+             });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await PUT(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(500);
+            expect(body).toEqual({ error: 'Failed to update membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+    });
+
+    describe('DELETE /api/memberships/{key}', () => {
+         beforeEach(() => {
+            jest.resetAllMocks();
+            prismaMock.membership.delete.mockResolvedValue(mockMembershipWithRelations); // delete returns the deleted object
+         });
+
+        it('should delete the specific membership and return 204', async () => {
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await DELETE(req, params);
+
+            expect(response.status).toBe(204);
+            expect(await response.text()).toBe(''); // No body for 204
+            expect(prismaMock.membership.delete).toHaveBeenCalledWith({
+                where: { memberId_workgroupId_startDate: { memberId: 1, workgroupId: 10, startDate: testDate } },
+            });
+        });
+
+        it('should return 404 if the membership to delete is not found (P2025)', async () => {
+            const prismaNotFoundError = new Error('Record to delete does not exist.');
+            (prismaNotFoundError as any).code = 'P2025';
+            prismaMock.membership.delete.mockRejectedValue(prismaNotFoundError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${notFoundCompositeKey}`, { method: 'DELETE' });
+             const params = { params: { memberId_workgroupId_startDate: notFoundCompositeKey } };
+             const parsedKey = parseMembershipKey(notFoundCompositeKey)!;
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(404);
+            expect(body).toEqual({ message: 'Membership not found' });
+            expect(prismaMock.membership.delete).toHaveBeenCalledWith({
+                 where: { memberId_workgroupId_startDate: { memberId: parsedKey.memberId, workgroupId: parsedKey.workgroupId, startDate: parsedKey.startDate } },
+            });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+         it('should return 400 if the key format is invalid', async () => {
+             const req = new NextRequest(`http://localhost/api/memberships/${invalidCompositeKeyFormat}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: invalidCompositeKeyFormat } };
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(body).toHaveProperty('error', 'Invalid path parameter format');
+            expect(prismaMock.membership.delete).not.toHaveBeenCalled();
+        });
+
+        it('should return 409 if delete fails due to foreign key constraint (P2003)', async () => {
+            const fkError = new Error('Foreign key constraint violation');
+            (fkError as any).code = 'P2003';
+            prismaMock.membership.delete.mockRejectedValue(fkError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(409); // Conflict
+            expect(body).toEqual({ error: 'Cannot delete membership due to existing references.' });
+            expect(prismaMock.membership.delete).toHaveBeenCalled();
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
+        });
+
+        it('should return 500 if there is a generic database error during delete', async () => {
+            const dbError = new Error('Database error');
+             // Ensure it's not a P2025 or P2003 error
+            if ('code' in dbError) delete (dbError as any).code;
+            prismaMock.membership.delete.mockRejectedValue(dbError);
+
+            // Suppress console.error for this test
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const req = new NextRequest(`http://localhost/api/memberships/${compositeKey}`, { method: 'DELETE' });
+            const params = { params: { memberId_workgroupId_startDate: compositeKey } };
+
+            const response = await DELETE(req, params);
+            const body = await response.json();
+
+            expect(response.status).toBe(500);
+            expect(body).toEqual({ error: 'Failed to delete membership. Please check server logs.' });
+
+            // Restore console.error
+            consoleErrorSpy.mockRestore();
         });
     });
 });

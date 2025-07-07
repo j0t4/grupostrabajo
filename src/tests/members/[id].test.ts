@@ -1,7 +1,7 @@
 import { GET, PUT, DELETE } from '@/app/api/members/[id]/route';
 import { prismaMock } from '@/../src/__mocks__/@prisma/client';
 import { NextRequest } from 'next/server';
-import { Member } from '@prisma/client';
+import { Member, MemberStatus } from '@prisma/client';
 
 // Helper function to create a mock NextRequest
 const createMockRequest = (method: string, body?: any, params?: { id: string }): NextRequest => {
@@ -18,7 +18,6 @@ const serializeMember = (member: Member | null) => {
   if (!member) return null;
   return {
     ...member,
-    joinDate: member.joinDate.toISOString(),
     deactivationDate: member.deactivationDate ? member.deactivationDate.toISOString() : null,
   };
 };
@@ -27,12 +26,21 @@ describe('Members API - /api/members/[id]', () => {
   const memberId = 1;
   const mockMember: Member = {
       id: memberId,
-      firstName: 'John',
-      lastName: 'Doe',
+      name: 'John',
+      surname: 'Doe',
       email: 'john.doe@example.com',
-      joinDate: new Date('2024-01-01T00:00:00.000Z'),
-      status: 'ACTIVE',
+      dni: '12345678A',
+      position: 'Developer',
+      organization: 'Acme Inc.',
+      phone1: '123456789',
+      phone1Description: 'Work',
+      phone2: null,
+      phone2Description: null,
+      phone3: null,
+      phone3Description: null,
+      status: MemberStatus.ACTIVE,
       deactivationDate: null,
+      deactivationDescription: null,
   };
   const serializedMockMember = serializeMember(mockMember);
 
@@ -73,16 +81,22 @@ describe('Members API - /api/members/[id]', () => {
        it('should return 500 on database error', async () => {
            prismaMock.member.findUnique.mockRejectedValue(new Error('Database error'));
 
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
            const response = await GET(createMockRequest('GET', null, { id: String(memberId) }), params);
            const data = await response.json();
 
            expect(response.status).toBe(500);
            expect(data.error).toContain('Failed to fetch member');
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
   });
 
   describe('PUT /api/members/[id]', () => {
-      const updateData = { firstName: 'Updated Name', status: 'INACTIVE' as const };
+      const updateData = { name: 'Updated Name', status: MemberStatus.INACTIVE };
       const updatedMember = { ...mockMember, ...updateData };
       const serializedUpdatedMember = serializeMember(updatedMember);
 
@@ -108,6 +122,9 @@ describe('Members API - /api/members/[id]', () => {
            // (prismaError as any).code = 'P2025'; // Simulate Prisma error code if specific handling is needed
            prismaMock.member.update.mockRejectedValue(prismaError);
 
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
            const req = createMockRequest('PUT', updateData, { id: String(nonExistentIdParams.params.id) });
            const response = await PUT(req, nonExistentIdParams);
            const data = await response.json();
@@ -115,6 +132,9 @@ describe('Members API - /api/members/[id]', () => {
            expect(response.status).toBe(500); // Currently returns 500
            expect(data).toEqual({ error: 'Failed to update member' });
            // If 404 handling were added based on P2025: expect(response.status).toBe(404);
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
       });
 
        // If ID validation were added:
@@ -139,12 +159,18 @@ describe('Members API - /api/members/[id]', () => {
        it('should return 500 on other database error', async () => {
            prismaMock.member.update.mockRejectedValue(new Error('Some other database error'));
 
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
            const req = createMockRequest('PUT', updateData, { id: String(memberId) });
            const response = await PUT(req, params);
            const data = await response.json();
 
            expect(response.status).toBe(500);
            expect(data.error).toContain('Failed to update member');
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
   });
 
@@ -170,6 +196,9 @@ describe('Members API - /api/members/[id]', () => {
            // (prismaError as any).code = 'P2025';
            prismaMock.member.delete.mockRejectedValue(prismaError);
 
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
            const req = createMockRequest('DELETE', null, { id: String(nonExistentIdParams.params.id) });
            const response = await DELETE(req, nonExistentIdParams);
            const data = await response.json();
@@ -177,6 +206,9 @@ describe('Members API - /api/members/[id]', () => {
            expect(response.status).toBe(500); // Currently returns 500
            expect(data).toEqual({ error: 'Failed to delete member' });
            // If 404 handling were added based on P2025: expect(response.status).toBe(404);
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
 
         // If deletion conflicts (e.g., foreign key constraints) were handled:
@@ -202,12 +234,18 @@ describe('Members API - /api/members/[id]', () => {
        it('should return 500 on other database error during delete', async () => {
            prismaMock.member.delete.mockRejectedValue(new Error('Database error during delete'));
 
+           // Suppress console.error for this test
+           const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
            const req = createMockRequest('DELETE', null, { id: String(memberId) });
            const response = await DELETE(req, params);
            const data = await response.json();
 
            expect(response.status).toBe(500);
            expect(data.error).toContain('Failed to delete member');
+
+           // Restore console.error
+           consoleErrorSpy.mockRestore();
        });
   });
 });
