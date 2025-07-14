@@ -3,22 +3,27 @@
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
-import MemberForm, { MemberFormData } from "../components/MemberForm"
+import WorkgroupForm, { WorkgroupFormData } from "../components/WorkgroupForm"
 
-export default function AddMemberPage() {
+export default function AddWorkgroupPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (formData: MemberFormData) => {
+  const handleSubmit = async (formData: WorkgroupFormData) => {
     setLoading(true)
 
     try {
-      const response = await fetch("/api/members", {
+      const dataToSubmit = {
+        ...formData,
+        parentId: formData.parentId ? Number(formData.parentId) : null,
+      };
+
+      const response = await fetch("/api/workgroups", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(dataToSubmit),
       })
 
       if (!response.ok) {
@@ -26,12 +31,12 @@ export default function AddMemberPage() {
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
       }
 
-      toast.success("Member added successfully.", {
-        description: "The new member has been successfully added to the system.",
+      toast.success("Workgroup added successfully.", {
+        description: "The new workgroup has been successfully added to the system.",
       })
-      router.push("/members") // Redirect to members list page
+      router.push("/workgroups") // Redirect to workgroups list page
     } catch (error) {
-      toast.error("Failed to add member", {
+      toast.error("Failed to add workgroup", {
         description: `Error: ${error.message}`,
       })
     } finally {
@@ -40,7 +45,7 @@ export default function AddMemberPage() {
   }
 
   return (
-    <MemberForm 
+    <WorkgroupForm 
       onSubmitAction={handleSubmit}
       loading={loading}
     />

@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 import { Workgroup } from '@prisma/client';
 
 // Helper function to create a mock NextRequest
-const createMockRequest = (method: string, body?: any, params?: { id: string }): NextRequest => {
+const createMockRequest = (method: string, body?: Record<string, unknown>, params?: { id: string }): NextRequest => {
     const url = new URL(`http://localhost/api/workgroups/${params?.id ?? '1'}`);
     return new NextRequest(url.toString(), {
         method,
@@ -13,7 +13,7 @@ const createMockRequest = (method: string, body?: any, params?: { id: string }):
     });
 };
 
-const serializeWorkgroup = (workgroup: any) => {
+const serializeWorkgroup = (workgroup: Workgroup) => {
   if (!workgroup) return null;
   return {
     ...workgroup,

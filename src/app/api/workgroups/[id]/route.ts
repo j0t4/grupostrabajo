@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Workgroup } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -21,7 +21,7 @@ const WorkgroupUpdateSchema = z.object({
 }).strict(); // Ensure no extra fields are passed
 
 // Helper to serialize dates
-const serializeWorkgroup = (workgroup: any) => {
+const serializeWorkgroup = (workgroup: Workgroup) => {
   if (!workgroup) return null;
   return {
     ...workgroup,
@@ -50,7 +50,7 @@ export async function GET(
 
     const workgroup = await prisma.workgroup.findUnique({
       where: { id },
-      // include: { children: true, parent: true } // Example of including relations
+      include: { children: true, parent: true }
     });
 
     if (!workgroup) {
@@ -88,8 +88,8 @@ export async function PUT(
     const updateData = validationResult.data;
 
     // Convert date string back to Date object if present
-    if (updateData.deactivationDate) {
-        updateData.deactivationDate = new Date(updateData.deactivationDate);
+    if (updateData.deactivationDate !== undefined) {
+        updateData.deactivationDate = updateData.deactivationDate ? new Date(updateData.deactivationDate) : null;
     }
 
     // Check parentId validity if provided (optional)
@@ -112,7 +112,7 @@ export async function PUT(
     // Serialize before sending
     return NextResponse.json(serializeWorkgroup(workgroup));
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error updating workgroup:", error);
     if (error.code === 'P2025') { // Record to update not found
       return NextResponse.json({ message: 'Workgroup not found' }, { status: 404 });
@@ -151,7 +151,7 @@ export async function DELETE(
     // Return 204 No Content for successful deletion
     return new NextResponse(null, { status: 204 });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error deleting workgroup:", error);
     if (error.code === 'P2025') { // Record to delete not found (already handled above, but good failsafe)
         return NextResponse.json({ message: 'Workgroup not found' }, { status: 404 });

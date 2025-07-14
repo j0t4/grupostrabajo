@@ -46,7 +46,7 @@ describe('Members API - /api/members', () => {
 
   describe('POST /api/members', () => {
     it('should create a new member and return it', async () => {
-      const newMemberData = { name: 'New', surname: 'Member', email: 'new.member@example.com', dni: '11111111C', status: MemberStatus.ACTIVE };
+      const newMemberData = { name: 'New', surname: 'Member', email: 'new.member@example.com', dni: '11111111C', status: MemberStatus.ACTIVE, deactivationDate: null, deactivationDescription: null };
       const createdMember: Member = {
           id: 3,
           ...newMemberData,

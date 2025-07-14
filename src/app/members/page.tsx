@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useRouter } from "next/navigation"
-import { Users, Plus, Search, Filter, Mail, Phone, MapPin } from "lucide-react"
+import { Users, Plus, Search, Filter, Mail, Phone } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface Member {
@@ -44,7 +44,7 @@ export default function MembersPage() {
         }
         const data = await response.json()
         setMembers(data)
-      } catch (e: any) {
+      } catch (e) {
         setError(e.message)
       } finally {
         setLoading(false)

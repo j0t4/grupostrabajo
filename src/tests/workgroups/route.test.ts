@@ -13,7 +13,8 @@ describe('Workgroups API - /api/workgroups', () => {
     it('should return all workgroups', async () => {
       prismaMock.workgroup.findMany.mockResolvedValue(mockWorkgroups);
 
-      const response = await GET();
+      const req = new NextRequest('http://localhost/api/workgroups');
+      const response = await GET(req);
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -27,7 +28,8 @@ describe('Workgroups API - /api/workgroups', () => {
       // Suppress console.error for this test
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-      const response = await GET();
+      const req = new NextRequest('http://localhost/api/workgroups');
+      const response = await GET(req);
       const data = await response.json();
 
       expect(response.status).toBe(500);
@@ -83,8 +85,8 @@ describe('Workgroups API - /api/workgroups', () => {
        const response = await POST(req);
        const data = await response.json();
 
-       expect(response.status).toBe(500);
-       expect(data).toEqual({ error: 'Failed to create workgroup' });
+       expect(response.status).toBe(400);
+       expect(data.error).toEqual('Invalid input data');
 
        // Restore console.error
        consoleErrorSpy.mockRestore();

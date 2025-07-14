@@ -3,7 +3,7 @@
 import { useRouter, useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import MemberForm from "@/app/members/components/MemberForm"
+import MemberForm, { MemberFormData } from "../../components/MemberForm"
 
 type MemberFormData = {
   id?: number;
@@ -42,7 +42,7 @@ export default function EditMemberPage() {
           ...data,
           deactivationDate: data.deactivationDate ? data.deactivationDate.split('T')[0] : ""
         })
-      } catch (error: any) {
+      } catch (error) {
         toast.error("Failed to load member", {
           description: `Error: ${error.message}`,
         })
@@ -76,7 +76,7 @@ export default function EditMemberPage() {
 
       toast.success("Member updated successfully.")
       router.push("/members")
-    } catch (error: any) {
+    } catch (error) {
       toast.error("Failed to update member", {
         description: `Error: ${error.message}`,
       })
