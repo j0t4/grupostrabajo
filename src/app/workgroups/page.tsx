@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
-import { Plus, Search, Edit, Users, Calendar, Folder, Users2 } from "lucide-react"
+import { Plus, Search, Edit, Users, Calendar, Folder, Users2, ChevronRight, ChevronDown } from "lucide-react"
 import WorkgroupCard from "./components/WorkgroupCard"
 
 interface Workgroup {
@@ -54,24 +54,63 @@ const getBreadcrumbPath = (workgroupId: number | null, workgroups: Workgroup[]):
   return path;
 };
 
-const WorkgroupTree = ({ workgroups, onSelect, selectedId, level = 0 }: { workgroups: Workgroup[], onSelect: (id: number) => void, selectedId: number | null, level?: number }) => {
+const WorkgroupTree = ({ 
+  workgroups, 
+  onSelect, 
+  selectedId, 
+  level = 0,
+  expandedIds,
+  onToggle,
+}: { 
+  workgroups: Workgroup[], 
+  onSelect: (id: number) => void, 
+  selectedId: number | null, 
+  level?: number,
+  expandedIds: Set<number>,
+  onToggle: (id: number) => void,
+}) => {
   return (
     <ul className="space-y-1">
-      {workgroups.map((workgroup) => (
-        <li key={workgroup.id}>
-          <Button
-            variant="ghost"
-            className={`w-full justify-start text-left h-auto py-2 ${selectedId === workgroup.id ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "text-gray-700 hover:bg-gray-100"}`}
-            style={{ paddingLeft: `${1 + level * 1.5}rem` }}
-            onClick={() => onSelect(workgroup.id)}
-          >
-            {workgroup.name}
-          </Button>
-          {workgroup.children && workgroup.children.length > 0 && (
-            <WorkgroupTree workgroups={workgroup.children} onSelect={onSelect} selectedId={selectedId} level={level + 1} />
-          )}
-        </li>
-      ))}
+      {workgroups.map((workgroup) => {
+        const isExpanded = expandedIds.has(workgroup.id);
+        const hasChildren = workgroup.children && workgroup.children.length > 0;
+        
+        return (
+          <li key={workgroup.id}>
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                className={`w-full justify-start text-left h-auto py-2 ${selectedId === workgroup.id ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "text-gray-700 hover:bg-gray-100"}`}
+                style={{ paddingLeft: `${1 + level * 1.5}rem` }}
+                onClick={() => onSelect(workgroup.id)}
+              >
+                {hasChildren && (
+                  <button
+                    className="mr-2 p-1 hover:bg-gray-200 rounded-full"
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent selection when toggling
+                      onToggle(workgroup.id);
+                    }}
+                  >
+                    {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </button>
+                )}
+                {workgroup.name}
+              </Button>
+            </div>
+            {isExpanded && hasChildren && (
+              <WorkgroupTree 
+                workgroups={workgroup.children} 
+                onSelect={onSelect} 
+                selectedId={selectedId} 
+                level={level + 1} 
+                expandedIds={expandedIds}
+                onToggle={onToggle}
+              />
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 };
@@ -85,6 +124,19 @@ export default function WorkgroupsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const handleToggle = (id: number) => {
+    setExpandedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
 
   useEffect(() => {
     const fetchAllWorkgroups = async () => {
@@ -99,7 +151,12 @@ export default function WorkgroupsPage() {
         setWorkgroupTree(tree);
 
         if (data.length > 0 && !selectedWorkgroupId) {
-          setSelectedWorkgroupId(tree[0]?.id || data[0].id)
+          const firstNode = tree[0] || data[0];
+          setSelectedWorkgroupId(firstNode.id);
+          // Expand the first node by default
+          if (firstNode?.children.length > 0) {
+            setExpandedIds(new Set([firstNode.id]));
+          }
         }
       } catch (e: any) {
         setError(e.message)
@@ -154,6 +211,26 @@ export default function WorkgroupsPage() {
     return filter(workgroupTree);
   }, [searchTerm, workgroupTree]);
 
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      const newExpandedIds = new Set<number>();
+      const expandAll = (nodes: Workgroup[]) => {
+        for (const node of nodes) {
+          if (node.children && node.children.length > 0) {
+            newExpandedIds.add(node.id);
+            expandAll(node.children);
+          }
+        }
+      };
+      expandAll(filteredWorkgroupTree);
+      setExpandedIds(newExpandedIds);
+    } else {
+      // Optional: revert to a default state, like only top-level expanded
+      // setExpandedIds(new Set(workgroupTree.map(w => w.id)));
+    }
+  }, [searchTerm, filteredWorkgroupTree]);
+
+
   const breadcrumbPath = getBreadcrumbPath(selectedWorkgroupId, allWorkgroups);
 
   if (loading && allWorkgroups.length === 0) return <div className="min-h-screen flex items-center justify-center">Loading workgroups...</div>
@@ -182,6 +259,8 @@ export default function WorkgroupsPage() {
             workgroups={filteredWorkgroupTree}
             onSelect={setSelectedWorkgroupId}
             selectedId={selectedWorkgroupId}
+            expandedIds={expandedIds}
+            onToggle={handleToggle}
           />
         </nav>
       </aside>
