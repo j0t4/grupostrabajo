@@ -81,7 +81,7 @@ export default function WorkgroupForm({
       const newValues = { ...prev };
       if (field === 'parentId') {
         const numValue = parseInt(value, 10);
-        newValues.parentId = isNaN(numValue) ? null : numValue;
+        newValues.parentId = isNaN(numValue) ? undefined : numValue;
       } else {
         (newValues as any)[field] = value;
       }

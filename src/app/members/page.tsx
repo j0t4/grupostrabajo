@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { useRouter } from "next/navigation"
 import { Users, Plus, Search, Filter, Mail, Phone } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { MemberProfileModal } from "./components/MemberProfileModal"
 
 interface Member {
   id: string;
@@ -34,6 +35,8 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchMembers = async () => {
@@ -100,7 +103,7 @@ export default function MembersPage() {
           )}
         </div>
           <div className="flex gap-2 mt-4">
-            <Button size="sm" variant="outline">
+            <Button size="sm" variant="outline" onClick={() => { setSelectedMember(member); setIsProfileModalOpen(true); }}>
               View Profile
             </Button>
             <Button 
@@ -220,6 +223,18 @@ export default function MembersPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Member Profile Modal */}
+      {selectedMember && (
+        <MemberProfileModal
+          member={selectedMember}
+          isOpen={isProfileModalOpen}
+          onClose={() => {
+            setIsProfileModalOpen(false);
+            setSelectedMember(null);
+          }}
+        />
+      )}
     </div>
   )
 }
