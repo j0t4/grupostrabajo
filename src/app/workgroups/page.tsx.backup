@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
 import { Plus, Search, Edit, Users, Calendar, Folder, Users2, ChevronRight, ChevronDown, BookOpen, FileText, UserPlus } from "lucide-react"
-import WorkgroupCard from "./components/WorkgroupCard"
 
 interface Member {
   id: number;
@@ -116,15 +115,15 @@ const WorkgroupTree = ({
                 onClick={() => onSelect(workgroup.id)}
               >
                 {hasChildren && (
-                  <span
-                    className="mr-2 p-1 hover:bg-gray-200 rounded-full cursor-pointer"
+                  <button
+                    className="mr-2 p-1 hover:bg-gray-200 rounded-full"
                     onClick={(e) => {
-                      e.stopPropagation();
+                      e.stopPropagation(); // Prevent selection when toggling
                       onToggle(workgroup.id);
                     }}
                   >
-                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                  </span>
+                    {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </button>
                 )}
                 {workgroup.name}
               </Button>
@@ -326,8 +325,6 @@ export default function WorkgroupsPage() {
         {selectedWorkgroup ? (
           <>
             {/* Selected Workgroup Details Card */}
-
-   {/*          
             <Card className="mb-8">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -459,9 +456,6 @@ export default function WorkgroupsPage() {
               </CardContent>
             </Card>
 
- */}
-
-             <WorkgroupCard key={selectedWorkgroup.id} workgroup={selectedWorkgroup} />
             {/* Child Workgroups List - Simple List Format */}
             <div>
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Child Workgroups</h2>
@@ -495,10 +489,8 @@ export default function WorkgroupsPage() {
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-4">No child workgroups found.</p>
-              )}
+              )
             </div>
-
-{/* 
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
               {selectedWorkgroup.children && selectedWorkgroup.children.length > 0 ? (
@@ -511,7 +503,7 @@ export default function WorkgroupsPage() {
                 </div>
               )}
             </div>
- */}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <Card>
                 <CardContent className="pt-6 flex items-center space-x-4">

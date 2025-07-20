@@ -50,7 +50,27 @@ export async function GET(
 
     const workgroup = await prisma.workgroup.findUnique({
       where: { id },
-      include: { children: true, parent: true }
+      include: { 
+        children: {
+          include: {
+            memberships: {
+              include: {
+                member: true
+              }
+            },
+            meetings: true,
+            logbookEntries: true
+          }
+        }, 
+        parent: true,
+        memberships: {
+          include: {
+            member: true
+          }
+        },
+        meetings: true,
+        logbookEntries: true
+      }
     });
 
     if (!workgroup) {

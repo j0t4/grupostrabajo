@@ -19,6 +19,15 @@ export async function GET(request: Request) {
   try {
     const workgroups = await prisma.workgroup.findMany({
       where: status ? { status } : {},
+      include: {
+        memberships: {
+          include: {
+            member: true
+          }
+        },
+        meetings: true,
+        logbookEntries: true
+      }
     });
     return NextResponse.json(workgroups);
   } catch (error) {
