@@ -21,15 +21,20 @@ const WorkgroupUpdateSchema = z.object({
 }).strict(); // Ensure no extra fields are passed
 
 // Helper to serialize dates
-const serializeWorkgroup = (workgroup: Workgroup) => {
+const serializeWorkgroup = (workgroup: any) => {
   if (!workgroup) return null;
   return {
     ...workgroup,
     // Serialize Date objects to ISO strings
     deactivationDate: workgroup.deactivationDate ? workgroup.deactivationDate.toISOString() : null,
     // Recursively serialize children if included
-    // children: workgroup.children ? workgroup.children.map(serializeWorkgroup) : undefined,
-    // parent: workgroup.parent ? serializeWorkgroup(workgroup.parent) : undefined,
+    children: workgroup.children ? workgroup.children.map(serializeWorkgroup) : undefined,
+    parent: workgroup.parent ? serializeWorkgroup(workgroup.parent) : undefined,
+    memberships: workgroup.memberships ? workgroup.memberships.map((membership: any) => ({
+      ...membership,
+      startDate: membership.startDate.toISOString(),
+      endDate: membership.endDate ? membership.endDate.toISOString() : null,
+    })) : undefined,
   };
 };
 

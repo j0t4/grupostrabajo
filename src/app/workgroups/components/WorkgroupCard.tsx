@@ -202,7 +202,14 @@ const WorkgroupCard = ({ workgroup }: { workgroup: Workgroup }) => {
           <TabsContent value="members" className="mt-4">
             <div className="text-sm text-gray-600">
               {memberCount > 0 ? (
-                <p>Members list will be displayed here</p>
+                <ul className="space-y-2">
+                  {workgroup.memberships?.map((membership) => (
+                    <li key={membership.member.id} className="flex items-center justify-between p-2 border rounded-md">
+                      <span>{membership.member.name} {membership.member.surname} ({membership.member.email})</span>
+                      <span className="text-sm text-gray-500">Role: {membership.role}</span>
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <p>No members in this workgroup</p>
               )}

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface Workgroup {
   id: number;
@@ -21,6 +22,20 @@ export type WorkgroupFormData = {
   status: string;
   deactivationDate: string;
   parentId?: number;
+  memberships?: {
+    memberId: number;
+    workgroupId: number;
+    role: string;
+    startDate: string;
+    endDate: string | null;
+    endDateDescription: string | null;
+    member: {
+      id: number;
+      name: string;
+      surname: string;
+      email: string;
+    };
+  }[];
 }
 
 type WorkgroupFormProps = {
@@ -103,84 +118,109 @@ export default function WorkgroupForm({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input 
-                id="name" 
-                value={formData.name} 
-                onChange={handleChange} 
-                required 
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea 
-                id="description" 
-                value={formData.description} 
-                onChange={handleChange}
-              />
-            </div>
+          <Tabs defaultValue="details" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="members">Members</TabsTrigger>
+            </TabsList>
+            <TabsContent value="details">
+              <form onSubmit={handleSubmit} className="space-y-6 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={formData.description}
+                    onChange={handleChange}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="parentId">Parent Workgroup</Label>
-              <Select
-                onValueChange={(value) => handleSelectChange(value, "parentId")}
-                value={formData.parentId?.toString() ?? ""}
-              >
-                <SelectTrigger id="parentId">
-                  <SelectValue placeholder="Select a parent workgroup" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeWorkgroups.map((workgroup) => (
-                    <SelectItem key={workgroup.id} value={workgroup.id.toString()}>
-                      {workgroup.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="parentId">Parent Workgroup</Label>
+                  <Select
+                    onValueChange={(value) => handleSelectChange(value, "parentId")}
+                    value={formData.parentId?.toString() ?? ""}
+                  >
+                    <SelectTrigger id="parentId">
+                      <SelectValue placeholder="Select a parent workgroup" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeWorkgroups.map((workgroup) => (
+                        <SelectItem key={workgroup.id} value={workgroup.id.toString()}>
+                          {workgroup.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select 
-                  onValueChange={(value) => handleSelectChange(value, "status")} 
-                  value={formData.status}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      onValueChange={(value) => handleSelectChange(value, "status")}
+                      value={formData.status}
+                    >
+                      <SelectTrigger id="status">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ACTIVE">Active</SelectItem>
+                        <SelectItem value="INACTIVE">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {formData.status === "INACTIVE" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="deactivationDate">Deactivation Date</Label>
+                    <Input
+                      id="deactivationDate"
+                      type="date"
+                      value={formData.deactivationDate}
+                      onChange={handleChange}
+                    />
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loading}
                 >
-                  <SelectTrigger id="status">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="INACTIVE">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
+                  {loading
+                    ? (isEditing ? "Updating..." : "Adding...")
+                    : (isEditing ? "Update Workgroup" : "Add Workgroup")}
+                </Button>
+              </form>
+            </TabsContent>
+            <TabsContent value="members">
+              <div className="rounded-md border p-4">
+                <h3 className="text-lg font-medium mb-4">Workgroup Members</h3>
+                {initialData?.memberships && initialData.memberships.length > 0 ? (
+                  <ul className="space-y-2">
+                    {initialData.memberships.map((membership: any) => (
+                      <li key={membership.memberId} className="flex items-center justify-between p-2 border rounded-md">
+                        <span>{membership.member.name} {membership.member.surname} ({membership.member.email})</span>
+                        <span className="text-sm text-gray-500">Role: {membership.role}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500">No members in this workgroup.</p>
+                )}
               </div>
-            </div>
-
-            {formData.status === "INACTIVE" && (
-              <div className="space-y-2">
-                <Label htmlFor="deactivationDate">Deactivation Date</Label>
-                <Input 
-                  id="deactivationDate" 
-                  type="date" 
-                  value={formData.deactivationDate} 
-                  onChange={handleChange} 
-                />
-              </div>
-            )}
-
-            <Button 
-              type="submit" 
-              className="w-full" 
-              disabled={loading}
-            >
-              {loading 
-                ? (isEditing ? "Updating..." : "Adding...")
-                : (isEditing ? "Update Workgroup" : "Add Workgroup")}
-            </Button>
-          </form>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>
