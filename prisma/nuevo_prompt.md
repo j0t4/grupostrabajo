@@ -21,3 +21,5 @@ CheckItem: A CheckItem is a part of a Task. It has a title and a boolean field t
 TaskMember: A TaskMember is a join table that links a Task to a Member. It defines the member's role for the task: either responsible or collaborator.
 
 Make sure to include appropriate @id, @default, @unique, @relation, and @@index annotations to properly define the relationships and ensure data integrity. Also, define enums for the different statuses, roles, and types.
+
+Make sure @id`s are  autoincremental Ints, and database is local SQLite.
